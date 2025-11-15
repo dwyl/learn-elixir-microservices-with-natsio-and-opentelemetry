@@ -29,8 +29,8 @@ services:
 
 ```elixir
 # On client_svc
-Node.connect(:"user_svc@user_svc.msvc_default")
-Node.list()  # => [:"user_svc@user_svc.msvc_default"] ✓
+Node.connect(:"user_svc@user_svc.msvc")
+Node.list()  # => [:"user_svc@user_svc.msvc"] ✓
 
 # On user_svc (without calling Node.connect)
 Node.list()  # => [] ✗  ← user_svc doesn't know about client!
@@ -44,9 +44,9 @@ While the underlying TCP connection is bidirectional once established, the initi
 # In EVERY service's application.ex
 defp connect_to_cluster do
   nodes = [
-    :"client_svc@client_svc.msvc_default",
-    :"user_svc@user_svc.msvc_default",
-    :"job_svc@job_svc.msvc_default",
+    :"client_svc@client_svc.msvc",
+    :"user_svc@user_svc.msvc",
+    :"job_svc@job_svc.msvc",
     # ... all services
   ]
 
@@ -78,7 +78,7 @@ Use `name` (long names) with "." in the middle:
 ```yaml
 environment:
   RELEASE_DISTRIBUTION: "name"
-  RELEASE_NODE: "service_name@service_name.msvc_default"
+  RELEASE_NODE: "service_name@service_name.msvc"
   RELEASE_COOKIE: ${ERL_COOKIE}
 ```
 
@@ -102,13 +102,13 @@ export RELEASE_NODE="${RELEASE_NODE:-<%= @release.name %>@${HOSTNAME}}"
 When you configure:
 
 ```elixir
-{DNSCluster, query: {"user_svc", "user_svc.msvc_default"}}
+{DNSCluster, query: {"user_svc", "user_svc.msvc"}}
 ```
 
-- DNSCluster queries `user_svc.msvc_default` with a `nslookup user_svc.msvc_default`.
+- DNSCluster queries `user_svc.msvc` with a `nslookup user_svc.msvc`.
 - This returns `192.168.107.9`.
 - DNSCluster tries to connect using the IP: `Node.connect(:"user_svc@192.168.107.9")`
-- But the node is actually named as FQDN, not IP: `:"user_svc@user_svc.msvc_default"`
+- But the node is actually named as FQDN, not IP: `:"user_svc@user_svc.msvc"`
 
 - so the names don't match, so `Node.connect/1` returns `false`, but DNSCluster doesn't log this clearly.
 
@@ -132,11 +132,11 @@ config :libcluster,
       strategy: Cluster.Strategy.Epmd,
       config: [
         hosts: [
-          :"client_svc@client_svc.msvc_default",
-          :"user_svc@user_svc.msvc_default",
-          :"job_svc@job_svc.msvc_default",
-          :"image_svc@image_svc.msvc_default",
-          :"email_svc@email_svc.msvc_default"
+          :"client_svc@client_svc.msvc",
+          :"user_svc@user_svc.msvc",
+          :"job_svc@job_svc.msvc",
+          :"image_svc@image_svc.msvc",
+          :"email_svc@email_svc.msvc"
         ]
       ]
     ]
@@ -148,18 +148,18 @@ The _docker-compose.yml_ file:
 ```yaml
 services:
   user_svc:
-    hostname: user_svc.msvc_default  # ← Explicit hostname
+    hostname: user_svc.msvc  # ← Explicit hostname
     environment:
-      RELEASE_NODE: "user_svc@user_svc.msvc_default"
+      RELEASE_NODE: "user_svc@user_svc.msvc"
       RELEASE_COOKIE: ${ERL_COOKIE}
       RELEASE_DISTRIBUTION: "name"
     networks:
       - msvc_default  # ← Explicit network
 
   client_svc:
-    hostname: client_svc.msvc_default
+    hostname: client_svc.msvc
     environment:
-      RELEASE_NODE: "client_svc@client_svc.msvc_default"
+      RELEASE_NODE: "client_svc@client_svc.msvc"
       RELEASE_COOKIE: ${ERL_COOKIE}
       RELEASE_DISTRIBUTION: "name"
     networks:

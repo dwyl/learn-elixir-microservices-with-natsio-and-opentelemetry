@@ -4,7 +4,8 @@
 Mix.install([
   {:vix, "~> 0.35.0"},
   {:req, "~> 0.5.16"},
-  {:kino, "~> 0.17.0"}
+  {:kino, "~> 0.17.0"},
+  {:gnat, "~> 1.11"}
 ])
 ```
 
@@ -31,21 +32,11 @@ Kino.Layout.grid([
 Node.set_cookie(:msvc_dev_cookie_change_in_production)
 
 services_map = %{
-  client: :"client_svc@client_svc.msvc_default", 
-  user: :"user_svc@user_svc.msvc_default",
-  job: :"job_svc@job_svc.msvc_default",
-  email: :"email_svc@email_svc.msvc_default",
-  image: :"image_svc@image_svc.msvc_default",
+  client: :"client_svc@client_svc.msvc", 
+  user: :"user_svc@user_svc.msvc",
+  email: :"email_svc@email_svc.msvc",
+  image: :"image_svc@image_svc.msvc",
 }
-
-# Connect to services
-services = [
-  :"client_svc@client_svc.msvc_default",
-  :"user_svc@user_svc.msvc_default",
-  :"job_svc@job_svc.msvc_default",
-  :"image_svc@image_svc.msvc_default",
-  :"email_svc@email_svc.msvc_default"
-]
 
 results =
   Map.values(services_map)
@@ -69,7 +60,6 @@ defmodule HealthCheck do
   def check_all do
     services = [
       {"user_svc", 8081},
-      {"job_svc", 8082},
       {"email_svc", 8083},
       {"image_svc", 8084},
       {"client_svc", 8085},
@@ -137,6 +127,14 @@ node_info =
   end)
 
 Kino.DataTable.new(node_info)
+```
+
+## NATS.IO
+
+### Setup
+
+```elixir
+{:ok, gnat} = Gnat.start_link(%{host: "nats-server", port: 4222})
 ```
 
 ## Email flow
@@ -247,7 +245,7 @@ Req.get!("http://host.docker.internal:8087").body
 
 ```elixir
 # Select a node to inspect
-options = [client: "Client", user: "User", job: "Job", image: "Image", email: "Email"]
+options = [client: "Client", user: "User", image: "Image", email: "Email"]
 node_selector = Kino.Input.select("Select Node:",options )
 
 Kino.render(node_selector)

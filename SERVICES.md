@@ -31,11 +31,11 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 
 # Connect to services
 services = [
-  :"client_svc@client_svc.msvc_default",
-  :"user_svc@user_svc.msvc_default",
-  :"job_svc@job_svc.msvc_default",
-  :"image_svc@image_svc.msvc_default",
-  :"email_svc@email_svc.msvc_default"
+  :"client_svc@client_svc.msvc",
+  :"user_svc@user_svc.msvc",
+  :"job_svc@job_svc.msvc",
+  :"image_svc@image_svc.msvc",
+  :"email_svc@email_svc.msvc"
 ]
 
 Enum.each(services, &Node.connect/1)
@@ -143,11 +143,11 @@ docker exec msvc-client-svc curl http://user_svc:8081/health
 ### BEAM Cluster Node Names
 ```elixir
 # Each service has a fully qualified node name
-:"client_svc@client_svc.msvc_default"
-:"user_svc@user_svc.msvc_default"
-:"job_svc@job_svc.msvc_default"
-:"image_svc@image_svc.msvc_default"
-:"email_svc@email_svc.msvc_default"
+:"client_svc@client_svc.msvc"
+:"user_svc@user_svc.msvc"
+:"job_svc@job_svc.msvc"
+:"image_svc@image_svc.msvc"
+:"email_svc@email_svc.msvc"
 ```
 
 ---

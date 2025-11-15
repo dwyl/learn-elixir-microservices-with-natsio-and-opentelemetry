@@ -2,9 +2,6 @@ defmodule EmailServiceWeb.Router do
   use EmailServiceWeb, :router
   @moduledoc false
 
-  # EmailService.SendEmail - Send email via SMTP
-  post("/email_svc/send_email/v1", DeliveryController, :send)
-
   # Health check endpoints
   get("/health", HealthController, :check)
   head("/health", HealthController, :check)

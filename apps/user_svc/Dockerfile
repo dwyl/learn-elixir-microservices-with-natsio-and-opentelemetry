@@ -30,6 +30,7 @@ RUN mix local.hex --force && \
 
 # Copy shared protos library first (for better caching)
 COPY libs/protos libs/protos/
+COPY libs/otel_nats libs/otel_nats/
 
 # Copy user_svc dependency files
 COPY apps/${SERVICE}/mix.exs apps/${SERVICE}/mix.lock apps/${SERVICE}/

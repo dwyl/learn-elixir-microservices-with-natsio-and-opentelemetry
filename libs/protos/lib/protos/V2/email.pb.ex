@@ -27,5 +27,5 @@ defmodule Mcsv.V2.EmailResponse do
   field :success, 1, type: :bool
   field :message, 2, type: :string
   field :user_id, 3, type: :string, json_name: "userId"
-  field :user_email, 4, type: :int64, json_name: "userEmail"
+  field :user_email, 4, type: :string, json_name: "userEmail"
 end

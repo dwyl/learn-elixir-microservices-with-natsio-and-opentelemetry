@@ -28,6 +28,7 @@ You experience the "endpoints hell" (discovery, hardcoded mapping everywhere). O
   - [The Problem](#the-problem)
   - [What This Demo Covers](#what-this-demo-covers)
   - [Prerequisites](#prerequisites)
+  - [JetStream](#jetstream)
   - [OpenAPI Documentation](#openapi-documentation)
     - [Design-First Workflow](#design-first-workflow)
     - [API Style: Twirp-like RPC](#api-style-twirp-like-rpc)
@@ -43,7 +44,6 @@ You experience the "endpoints hell" (discovery, hardcoded mapping everywhere). O
   - [Services Overview](#services-overview)
     - [Client service](#client-service)
     - [User service](#user-service)
-    - [Job service](#job-service)
     - [Email service](#email-service)
     - [Image service](#image-service)
     - [Workflow example: Email Notification](#workflow-example-email-notification)
@@ -144,6 +144,32 @@ docker exec -it msvc-client-svc bin/client_svc remote
 # Interactive Elixir (1.19.2) - press Ctrl+C to exit (type h() ENTER for help)
 
 # iex(client_svc@ba41c71bacac)1> ImageClient.convert_png("my-image.png", "me@com")
+```
+
+## JetStream
+
+```elixir
+
+Publishing with Idempotency
+defp publish_email_request(user_request) do
+  binary = Mcsv.V2.EmailRequest.encode(user_request)
+  
+  # Generate idempotency key
+  msg_id = generate_message_id(user_request)
+  
+  Jetstream.publish(:gnat, "email.send", binary,
+    headers: [
+      {"Nats-Msg-Id", msg_id},  # Deduplication
+      {"trace-id", get_trace_id()}  # Tracing
+    ]
+  )
+end
+
+defp generate_message_id(user_request) do
+  # Deterministic ID based on user + intent
+  :crypto.hash(:sha256, "#{user_request.user_id}-#{user_request.email}-email")
+  |> Base.encode16(case: :lower)
+end
 ```
 
 ## OpenAPI Documentation
@@ -514,7 +540,6 @@ defp releases() do
 [
       client_svc: [
         applications: [
-          client_svc: :permanent,
           opentelemetry_exporter: :permanent,
           opentelemetry: :temporary
         ],
@@ -523,6 +548,35 @@ defp releases() do
     ]
 end
 ```
+
+OpenTelemetry Trace Propagation in NATS
+
+When CONSUMING messages (receiving):
+
+```elixir
+def handle_message(%{topic: "some.topic", body: body, headers: headers}) do
+  # Extract trace context from incoming message headers
+  ctx = :otel_propagator_text_map.extract(headers || [])
+  OpenTelemetry.Ctx.attach(ctx)
+  
+  Tracer.with_span "MyService.handler" do
+    # Your logic here
+  end
+end
+```
+
+When PUBLISHING messages (sending):
+
+```elixir
+Tracer.with_span "MyService.publisher" do
+  # Inject current trace context into outgoing message headers
+  trace_headers = OtelNats.inject()
+  :ok = Gnat.pub(:gnat, "some.topic", message, headers: trace_headers)
+end
+```
+
+Headers converted between HTTP format (OTel) and NATS tuples
+=> OtelNats (and copy in Dockerfile just like protos)
 
 We use Erlang's [OS MON](https://www.erlang.org/doc/apps/os_mon/os_mon_app.html) to monitor the system:
 
@@ -645,22 +699,22 @@ end)
 
 ```mermaid
 architecture-beta
+    service lvb(cloud)[LiveBook]
     group api(cloud)[API]
+    service nats(internet)[NATS] in api
     service client(internet)[Client] in api
     service s3(disk)[S3 MinIO] in api
     service user(server)[User] in api
-    service job(server)[Job] in api
-    service db(database)[DB SQLite] in api
     service email(internet)[SMTP] in api
     service image(disk)[Image] in api
 
-    client:R -- L:user
-    image:R --> L:s3
-    job:B -- T:user
-    email:R -- L:job
-    image:B -- T:job
-    db:L -- R:job
-    user:R -- L:s3
+    lvb:R -- L:client
+    client:T -- B:nats
+    image:R -- L:nats
+    email:L -- R:nats
+    nats:T -- B:user
+    s3:R -- L:user
+    image:T -- B:s3
 ```
 
 ### Client service
@@ -679,15 +733,6 @@ architecture-beta
   - Image conversion workflow orchestration
   - Image storage with presigned URLs
   - Completion callback relay to clients
-
-### Job service
-
-- **Purpose**: Background job processing orchestrator
-- **Key Features**:
-  - Oban-based job queue (SQLite database)
-  - Email worker for welcome emails
-  - Image conversion worker
-  - Job retry logic and monitoring
 
 ### Email service
 
@@ -710,12 +755,15 @@ This workflow demonstrates async email notifications using Oban and Swoosh.
 
 ```mermaid
 sequenceDiagram
-    Client->>+User: event <br> send email
-    User->>+ObanJob: dispatch event
-    ObanJob ->> ObanJob: enqueue Job <br> trigger async Worker
-    ObanJob-->>+Email: do email job
-    Email -->>Email: send email
-    Email -->>Client: email sent
+    Client->> +Nats: pub <br> user.send.email
+    Nats -->> +User: dispatch
+    User ->> Nats: pub <br> email.send.email
+    Nats -->> +Email: dispatch
+    Email ->> Email: do email job
+    Email ->> Nats: pub <br> user.email.sent
+    Nats -->> User: dispatch 
+    User ->> Nats: pub <br> client.email.sent
+    Nats -->> Client: dispatch
 ```
 
 **Key Features**:
@@ -737,17 +785,19 @@ This workflow demonstrates efficient binary data handling using the "Pull Model"
 
 ```mermaid
 sequenceDiagram
-    Client->>+User: event <br><image:binary>
-    User -->>User: create presigned-URL<br> S3 storage
-    User->>+ObanJob: event <br><convert:URL>
-    ObanJob ->> ObanJob: enqueue a Job <br> trigger async Worker
-    ObanJob-->>+Image: do convert
-    Image -->> +S3: fetch binary
-    Image -->> Image: convert<br> new presigned-URL
-    Image -->>S3: save new presigned-URL
-    Image -->>ObanJob: URL
-    ObanJob ->>User: URL
-    User ->>Client: URL
+    Client ->>+Nats: pub <br> user.convert image
+    Nats -->> + User: dispatch <br> user.dispatch
+    User ->> +S3: image storage + URL
+    User ->> Nats: pub <br> image.convert URL
+    Nats -->> Image: dispatch <br> image.conver URL
+    Image <<->> +S3: fetch binary
+    Image ->> Image: convert<br> new presigned-URL
+    Image ->>S3: save new presigned-URL
+    Image ->> Nats: pub <br> user.converted URL
+    Nats -->> User: dispatch <br> user.converted URL
+    User ->> Nats: pub <br> client.converted URL
+    Nats -->> Client: dispatch <br> client.converted URL
+
 ```
 
 Example of trace propagation via telemetry of the image flow:
@@ -1165,28 +1215,6 @@ The sources at the end are a good source of explanation on how to do this.
 Curious about the effort required to build this?  COCOMO (Constructive Cost Model) ⏯️ <https://en.wikipedia.org/wiki/COCOMO> is a standard software engineering metric.
 We used the implementation: <https://github.com/boyter/scc> to generate the table below.
 
-| Language        | Files | Lines  | Blanks | Comments | Code   | Complexity |
-| --------------- | ----- | ------ | ------ | -------- | ------ | ---------- |
-| Elixir          | 132   | 8,240  | 1,167  | 877      | 6,196  | 270        |
-| YAML            | 13    | 2,154  | 160    | 78       | 1,916  | 0          |
-| JSON            | 12    | 15,953 | 6      | 0        | 15,947 | 0          |
-| Markdown        | 10    | 2,293  | 551    | 0        | 1,742  | 0          |
-| Docker ignore   | 6     | 209    | 48     | 54       | 107    | 0          |
-| Dockerfile      | 5     | 456    | 113    | 116      | 227    | 16         |
-| Protocol Buffe… | 10    | 502    | 90     | 50       | 362    | 0          |
-| HTML            | 1     | 412    | 33     | 0        | 379    | 0          |
-| Makefile        | 1     | 77     | 11     | 11       | 55     | 4          |
-| Shell           | 1     | 41     | 7      | 6        | 28     | 0          |
-| Total           | 190   | 29,838 | 2,039  | 1,192    | 26,607 | 290        |
-
-Estimated Cost to Develop (organic) $846,917
-
-Estimated Schedule Effort (organic) 12.91 months
-
-Estimated People Required (organic) 5.83
-
-> The OpenAPISpecs are "just" YAML but take even more time than Protocol Buffers files to write, but take 0 complexity!?
-
 ## Production Considerations
 
 **Observability scales horizontally, not per-service**:
@@ -1206,19 +1234,11 @@ The observability stack revealed that image conversion is the bottleneck (CPU-bo
    - Job service distributes conversion requests across instances
    - No code changes needed
 
-2. **Scale Oban job processing** (if queue depth grows):
-   - Run multiple Job service instances sharing the same database
-   - Each instance processes jobs from the shared queue (Postgres or SQLite)
-   - Oban handles job distribution, retry logic, and persistence automatically
-
 **What you DON'T need** (for this use case):
 
-- **RabbitMQ**: Adds broker infrastructure without solving the CPU bottleneck. The bottleneck is image processing time, not message delivery. Oban's database-backed queue is sufficient.
 - **Service mesh**: Doesn't improve conversion throughput. The system doesn't need mTLS between 5 internal services or advanced traffic routing.
 
 **Result**: Horizontal scaling of Image service instances directly addresses the observed bottleneck with minimal complexity.
-
-**What you COULD use**: `NATS.IO` (branch _nats_) is a response to the "endpoint hell" and use an event like pattern with push/subscribe. Furthermore, we have the issue of a long HTTP connection - vulnerable to timeouts - between the Worker and the Image operation (fetch from S3, conver to PDF, save to S3, return URL). Oban retries the entire Job if fails. `JetStream` can address this with persistent streams (messages are stored and replayed if processing fails), acknowledgment-based retries, at-least-once delivery. Furthermore, JetStream can address the **idempotency** that we did not handle here, both for emails and image conversion; we do not want to resend an email twice nor resend and replay an imamge conversion twice if something breaks and is retried in the worker flow.
 
 **Production Optimization**:
 
@@ -1266,8 +1286,8 @@ architecture-beta
     service gate(cloud)[Gateway Caddy] in vps
     service lvb(server)[LiveBook] in vps
     group api(cloud)[API] in vps
-    service services(server)[User Job Image Email] in api
-    service db(database)[Database] in api
+    service services(server)[User Image Email] in api
+    service nats(server)[NATS] in api
     service miniio(cloud)[S3 Storage] in api
     service j(server)[Jaeger Grafana Prometheus] in o11y
 
@@ -1303,7 +1323,7 @@ docker exec -it msvc-client-svc bin/client_svc remote
 iex(client_svc@container)>
   Task.async_stream(
     1..1000
-    fn i -> Client.create(i) end, 
+    fn i -> Email.create(i) end, 
     max_concurrency: 10, 
     ordered: false
     )
@@ -1317,7 +1337,7 @@ iex(client_svc@container)>
   File.cd!("lib/client_svc-0.1.0/priv")
   {:ok, img} = Vix.Vips.Operation.worley(5000, 5000)
   :ok = Vix.Vips.Image.write_to_file(img, "big-test.png")
-  ImageClient.convert_png("big-test.png", "test@example.com")
+  Image.convert_png("big-test.png", "test@example.com")
 ```
 
 **Load test (sustained throughput):**
@@ -1328,7 +1348,7 @@ iex(client_svc@container)>
   |> Stream.take(1200)  # 2 minutes worth
   |> Task.async_stream(
     fn i -> 
-      ImageClient.convert_png("test.png", "user#{i}@example.com")
+      Image.convert_png("test.png", "user#{i}@example.com")
     end,
     max_concurrency: 10,
     ordered: false

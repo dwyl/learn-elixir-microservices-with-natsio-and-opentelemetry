@@ -28,6 +28,10 @@ config :client_svc,
     convert_image: "/user_svc/convert_image/v1"
   }
 
+config :client_svc, :nats,
+  host: System.get_env("NATS_HOST", "nats-server"),
+  port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+
 # Determine OTLP protocol from environment variable
 # Options: "http" (default) or "grpc" (production)
 otlp_protocol =

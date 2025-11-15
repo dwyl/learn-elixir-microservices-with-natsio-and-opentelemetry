@@ -43,32 +43,6 @@ defmodule Clients.JobSvcClient do
     end
   end
 
-  @doc """
-  Enqueues an email job.
-
-  ## Parameters
-  - `user_request_binary`: Encoded UserRequest protobuf
-
-  ## Returns
-  - `{:ok, job_id}` on success
-  - `{:error, reason}` on failure
-  """
-  @spec enqueue_email(binary()) :: {:ok, binary()} | {:error, any()}
-  def enqueue_email(user_request_binary) do
-    case post(job_base_url(), job_endpoints().enqueue_email, user_request_binary) do
-      {:ok, %{status: 200, body: response_binary}} ->
-        {:ok, response_binary}
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.error("[User][JobSvcClient] HTTP #{status}: #{inspect(body)}")
-        {:error, "HTTP #{status}"}
-
-      {:error, reason} ->
-        Logger.error("[User][JobSvcClient] Request failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
   # Private HTTP helper
 
   @spec post(binary(), binary(), binary(), keyword()) ::

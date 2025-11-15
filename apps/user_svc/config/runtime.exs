@@ -56,6 +56,10 @@ config :ex_aws, :s3,
   port: System.get_env("MINIO_PORT", "9000") |> String.to_integer(),
   region: System.get_env("AWS_REGION", "us-east-1")
 
+config :user_svc, :nats,
+  host: System.get_env("NATS_HOST", "nats-server"),
+  port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+
 # Determine OTLP protocol from environment variable
 # Options: "http" (default) or "grpc" (production)
 otlp_protocol =

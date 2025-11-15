@@ -12,28 +12,24 @@ message ImageConversionRequest {
 
   // EITHER image_url OR image_data (prefer image_url for microservices)
   string image_url = 3;         // URL to fetch image from (e.g., http://user_svc/ImageLoader/job_123)
-  bytes image_data = 9;         // Raw image binary data (deprecated, use image_url instead)
-
   // Input format (png, jpeg, jpg)
   string input_format = 4;
-
+  
   // PDF conversion options
   string pdf_quality = 5;       // "low", "medium", "high", "lossless"
   bool strip_metadata = 6;      // Remove EXIF data
   int32 max_width = 7;          // Resize if larger (0 = no resize)
   int32 max_height = 8;         // Resize if larger (0 = no resize)
-
+  
   // Storage tracking - used to clean up stored images
-  string storage_id = 10;       // Unique storage identifier for cleanup
+  string storage_id = 9;       // Unique storage identifier for cleanup
+  bytes image_data = 10;
 }
 
 // Response after image conversion
 message ImageConversionResponse {
   bool success = 1;
   string message = 2;
-
-  // Converted PDF binary data
-  bytes pdf_data = 3;
 
   // Metrics
   int64 input_size = 4;          // Original image size in bytes

@@ -30,8 +30,9 @@ WORKDIR /app
 RUN mix local.hex --force && \
     mix local.rebar --force
 
-# Copy shared protos library first (for better caching)
+# Copy shared libraries first (for better caching)
 COPY libs/protos libs/protos/
+COPY libs/otel_nats libs/otel_nats/
 
 # Copy client_svc dependency files
 COPY apps/${SERVICE}/mix.exs apps/${SERVICE}/mix.lock apps/${SERVICE}/

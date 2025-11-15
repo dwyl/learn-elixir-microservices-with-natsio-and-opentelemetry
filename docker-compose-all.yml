@@ -15,7 +15,7 @@ services:
       - "4222:4222" # Client connections
       - "8222:8222" # HTTP monitoring
       # - "6222:6222" # Cluster routing
-    command: -a 0.0.0.0 -js
+    command: -js --store_dir=/data
     volumes:
       - nats_data:/data # ← Persistent volume
     restart: unless-stopped
@@ -146,63 +146,6 @@ services:
       timeout: 3s
       retries: 3
 
-  # Job Service
-  job_svc:
-    build:
-      context: . # Build from monorepo root to access libs/
-      dockerfile: apps/job_svc/Dockerfile
-      args:
-        OS: ${OS}
-        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
-
-    container_name: msvc-job-svc
-    hostname: job_svc.msvc
-    ports:
-      - ${JOB_SVC_PORT}:${JOB_SVC_HOST_PORT}
-
-    develop:
-      watch:
-        - action: rebuild
-          path: ./apps/job_svc/lib
-        - action: rebuild
-          path: ./apps/job_svc/mix.exs
-        - action: rebuild
-          path: ./libs/protos # Rebuild when protos change
-
-    env_file:
-      - .env.staging
-
-    environment:
-      RELEASE_COOKIE: ${ERL_COOKIE}
-      RELEASE_DISTRIBUTION: "name"
-      RELEASE_NODE: "job_svc@job_svc.msvc"
-      PORT: ${JOB_SVC_PORT}
-      OTEL_SERVICE_NAME: "job_svc"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317" # Send to Jaeger for better UI
-      DATABASE_PATH: "/app/db/job_service.db"
-
-      # Docker-specific config (override .env for internal networking)
-      MINIO_HOST: "minio"
-      MINIO_SCHEME: "http://"
-      IMAGE_SVC_URL: "http://image_svc:${IMAGE_SVC_PORT}"
-      EMAIL_SVC_URL: "http://email_svc:${EMAIL_SVC_PORT}"
-      USER_SVC_URL: "http://user_svc:${USER_SVC_PORT}"
-      IMAGE_SVC: "msvc-images"
-
-    volumes:
-      - job-data:/app/db # Persist SQLite database
-
-    <<: *common_depends
-
-    networks:
-      - msvc
-
-    healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:${JOB_SVC_PORT}/health" ]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-
   # Image Service
   image_svc:
     build:
@@ -308,6 +251,11 @@ services:
       - ${MINIO_CONSOLE_PORT}:9001 # Console UI port
     env_file:
       - .env.staging
+
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
     command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data
@@ -391,7 +339,6 @@ services:
     depends_on:
       - user_svc
       - client_svc
-      - job_svc
       - image_svc
       - email_svc
     networks:
@@ -477,7 +424,6 @@ services:
         [
           { url: "specs/client_svc.yaml", name: "Client Service (${CLIENT_SVC_PORT})"},
           { url: "specs/user_svc.yaml", name: "User Service (${USER_SVC_PORT})" },
-          { url: "specs/job_svc.yaml", name: "Job Service (${JOB_SVC_PORT})" },
           { url: "specs/image_svc.yaml", name: "Image Service (${IMAGE_SVC_PORT})" },
           { url: "specs/email_svc.yaml", name: "Email Service (${EMAIL_SVC_PORT})" }
         ]
@@ -499,8 +445,6 @@ volumes:
   loki-data:
     driver: local
   grafana-data:
-    driver: local
-  job-data:
     driver: local
   prometheus-data:
     driver: local

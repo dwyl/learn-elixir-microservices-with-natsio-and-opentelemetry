@@ -61,12 +61,15 @@ defmodule EmailSvc.MixProject do
       {:phoenix, "~> 1.8.1"},
       {:req, "~> 0.5.15"},
       {:bandit, "~> 1.8"},
+      {:gnat, "~> 1.11.1"},
+      {:jetstream, "~> 0.0.9"},
       # email client
       {:swoosh, "~> 1.19.8"},
       # serializers
       {:jason, "~> 1.4"},
       {:protos, path: "../../libs/protos"},
       {:protobuf, "~> 0.15.0"},
+      {:otel_nats, path: "../../libs/otel_nats"},
 
       # Telemetry, OpenTelemetry for distributed tracing
       {:telemetry, "~> 1.3"},

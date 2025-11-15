@@ -13,12 +13,35 @@ services:
       - "4222:4222" # Client connections
       - "8222:8222" # HTTP monitoring
       # - "6222:6222" # Cluster routing
-    command: -a 0.0.0.0 -js
+    command: -js --store_dir=/data
     volumes:
       - nats_data:/data # ← Persistent volume
     restart: unless-stopped
     networks:
       - msvc
+
+  livebook:
+    image: ghcr.io/livebook-dev/livebook:nightly
+    container_name: msvc-livebook
+    hostname: livebook.msvc
+    ports:
+      - 8090:8090
+      - 8091:8091
+    environment:
+      - LIVEBOOK_PORT=8090
+      - LIVEBOOK_IFRAME_PORT=8091
+      - LIVEBOOK_DISTRIBUTION=name
+      - LIVEBOOK_COOKIE=${ERL_COOKIE}
+      - LIVEBOOK_PASSWORD=${LIVEBOOK_PASSWORD}
+      - LIVEBOOK_SECRET_KEY_BASE=IItyxAvQuUY4qKyolIxEJc5aMT+B7xp3sAZyhxbruzYa7Yar4PL0WWj3dMxySrwj
+      - LIVEBOOK_NODE=livebook@livebook.msvc
+    volumes:
+      - ./apps/notebooks:/data/
+      - ./apps:/workspace/apps:ro # Mount apps for inspection
+    networks:
+      - msvc
+    env_file:
+      - .env.staging
 
   # MinIO - S3-compatible object storage
   minio:

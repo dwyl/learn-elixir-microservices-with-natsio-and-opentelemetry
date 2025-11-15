@@ -14,5 +14,5 @@ message EmailResponse {
   bool success = 1;
   string message = 2;
   string user_id = 3;  // For tracking
-  int64 user_email = 4;
+  string user_email = 4;  // Should be string, not int64
 }

@@ -72,11 +72,14 @@ defmodule UserSvc.MixProject do
       {:bandit, "~> 1.8"},
       {:plug, "~> 1.18"},
       {:req, "~> 0.5.15"},
+      {:gnat, "~> 1.11.1"},
+      {:jetstream, "~> 0.0.9"},
 
       # serializers
       {:jason, "~> 1.4"},
       {:protos, path: "../../libs/protos"},
       {:protobuf, "~> 0.15.0"},
+      {:otel_nats, path: "../../libs/otel_nats"},
 
       # S3/MinIO client
       {:ex_aws, "~> 2.5"},
