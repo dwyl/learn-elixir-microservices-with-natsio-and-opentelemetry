@@ -1262,22 +1262,18 @@ The observability stack revealed that image conversion is the bottleneck (CPU-bo
 architecture-beta
     service cf(cloud)[CloudFlare]
     group vps(cloud)[VPS]
-    group o11y(cloud)[Observability] in vps
+    group o11y(cloud)[O11Y] in vps
     service gate(cloud)[Gateway Caddy] in vps
     service lvb(server)[LiveBook] in vps
     group api(cloud)[API] in vps
-    service client(server)[Client] in api
-    service user(server)[Services] in api
+    service services(server)[User Job Image Email] in api
     service db(database)[Database] in api
     service miniio(cloud)[S3 Storage] in api
     service j(server)[Jaeger Grafana Prometheus] in o11y
 
-    
-
     cf:R -- L:gate
     gate:R -- L:lvb
-    lvb:R -- L:client
-    client:T -- B:user
+    lvb:R -- L:services
     lvb:T -- B:j
   ```
 
