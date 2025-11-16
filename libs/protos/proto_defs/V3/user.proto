@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package mcsv.v3;
+
+// Email notification type
+enum EmailType {
+  EMAIL_TYPE_UNSPECIFIED = 0;  // Default value (required in proto3)
+  EMAIL_TYPE_WELCOME = 1;       // Welcome email for new users
+  EMAIL_TYPE_NOTIFICATION = 2;  // General notification email
+}
+
+message UserRequest {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  EmailType type = 4;  // Changed from string to enum
+}
+
+message UserResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+// Request to store an image/PDF in user_svc storage (MinIO)
+message StoreImageRequest {
+  bytes image_data = 1;       // Binary data (PNG, PDF, etc.)
+  string user_id = 2;         // User identifier
+  string format = 3;          // File format: "png", "pdf", "jpeg"
+  string original_storage_id = 4;  // Optional: reference to original image
+  string user_email = 5;      // User email for async notification
+  string job_id = 6;         // Unique job ID for tracking
+}
+
+// Response with presigned URL for stored image
+message StoreImageResponse {
+  bool success = 1;
+  string message = 2;
+  string job_id = 3;      // Unique identifier for tracking
+  string presigned_url = 4;   // Temporary URL for downloading (valid 1 hour)
+  int64 size = 5;             // Size in bytes
+}
+
+// Notification to client when PDF is ready (async callback)
+message PdfReadyNotification {
+  string user_email = 1;      // User who initiated the conversion
+  string job_id = 2;      // Unique identifier for tracking
+  string presigned_url = 3;   // Temporary URL to view/download PDF
+  int64 size = 4;             // PDF size in bytes
+  string message = 5;         // Human-readable message
+}
+
+// Response to PDF notification
+message PdfReadyResponse {
+  bool ok = 1;
+  string message = 2;
+  string user_email = 3;      // Echoed user email
+}
+
+// Simple ack response for image conversion notification
+message NotifyImageConvertedResponse {
+  bool ok = 1;
+  string message = 2;
+  string user_email = 3;
+}

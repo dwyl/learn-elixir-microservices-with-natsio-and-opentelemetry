@@ -33,6 +33,7 @@ COPY libs/protos libs/protos/
 COPY libs/otel_nats libs/otel_nats/
 COPY libs/jetstream_setup libs/jetstream_setup/
 
+
 # Copy email_svc dependency files
 COPY apps/${SERVICE}/mix.exs apps/${SERVICE}/mix.lock apps/${SERVICE}/
 COPY apps/${SERVICE}/config/config.exs apps/${SERVICE}/config/prod.exs apps/${SERVICE}/config/

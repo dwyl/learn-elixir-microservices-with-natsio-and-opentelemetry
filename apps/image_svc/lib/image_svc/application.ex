@@ -5,9 +5,8 @@ defmodule ImageService.Application do
   Image Service Application
 
   Responsible for image processing operations (PNG to PDF conversion, etc.)
-  Receives requests via HTTP and processes them using:
-  - ImageMagick for image format detection, metadata extraction, and PDF conversion
-  - Ghostscript (used internally by ImageMagick for PDF rendering)
+
+  Utilizes JetStream for asynchronous job handling and communication with other microservices.
   """
 
   require Logger
@@ -23,8 +22,8 @@ defmodule ImageService.Application do
       ImageSvcWeb.Telemetry,
       {Cluster.Supervisor, [topologies(), [name: ImageService.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
-      # {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
       {Task, &setup_jetstream/0},
+      ImageSvc.BroadwayImageProcessor,
       ImageSvcWeb.Endpoint
     ]
 
@@ -37,33 +36,31 @@ defmodule ImageService.Application do
       name: :gnat,
       backoff_period: 4_000,
       connection_settings: [
-        %{host: nats_host(), port: nats_port()}
+        %{
+          host: System.get_env("NATS_HOST", "localhost"),
+          port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+        }
       ]
     }
   end
 
   defp setup_jetstream do
-    # Wait for Gnat connection to be established
-    # Process.sleep(1000)
-    JetstreamSetup.setup_from_config(:image_svc, :gnat)
-  end
+    case Process.whereis(:gnat) do
+      nil ->
+        Process.send_after(self(), :ready, 20)
 
-  # defp consumer_supervisor_settings do
-  #   %{
-  #     connection_name: :gnat,
-  #     consuming_function: {ImageSvc.NatsConsumer, :handle_message},
-  #     subscription_topics: [
-  #       %{topic: "image.convert.to_pdf"}
-  #     ]
-  #   }
-  # end
+        receive do
+          :ready ->
+            setup_jetstream()
+        after
+          1000 ->
+            raise "Timeout waiting for NATS connection"
+        end
 
-  defp nats_host do
-    System.get_env("NATS_HOST", "localhost")
-  end
-
-  defp nats_port do
-    System.get_env("NATS_PORT", "4222") |> String.to_integer()
+      pid when is_pid(pid) ->
+        :ok = JetstreamSetup.setup_from_config(:image_svc, :gnat)
+        Logger.info("[NATS] Jetstream is ready")
+    end
   end
 
   defp topologies do

@@ -94,38 +94,6 @@ defmodule JetstreamSetup do
     end
   end
 
-  @doc """
-  Sets up the EMAILS stream and its consumers (legacy helper).
-  """
-  def setup_email_stream(connection_name \\ :gnat) do
-    streams = [
-      %{
-        name: "EMAILS",
-        subjects: ["email.>"],
-        consumers: [
-          %{name: "mailer", ack_policy: "explicit", deliver_policy: "all"}
-        ]
-      }
-    ]
-
-    setup_streams(connection_name, streams)
-  end
-
-  @doc """
-  Sets up the IMAGES stream and its consumers (legacy helper).
-  """
-  def setup_image_stream(connection_name \\ :gnat) do
-    streams = [
-      %{
-        name: "IMAGES",
-        subjects: ["image.>"],
-        consumers: []
-      }
-    ]
-
-    setup_streams(connection_name, streams)
-  end
-
   # Private helpers
 
   defp create_consumers(_connection_name, %{consumers: []}), do: :ok

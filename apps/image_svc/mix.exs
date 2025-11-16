@@ -73,6 +73,7 @@ defmodule ImageSvc.MixProject do
       {:gnat, "~> 1.11.1"},
       {:jetstream, "~> 0.0.9"},
       {:jetstream_setup, path: "../../libs/jetstream_setup"},
+      {:storage, path: "../../libs/storage"},
       {:broadway, "~> 1.2"},
       # serializers
       {:jason, "~> 1.4"},

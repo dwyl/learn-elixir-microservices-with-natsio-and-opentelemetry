@@ -38,7 +38,7 @@ defmodule Image do
       Tracer.set_attribute("image.size_bytes", png_size)
 
       request =
-        %Mcsv.V2.ImageConversionRequest{
+        %Mcsv.V3.ImageConversionRequest{
           user_id: "test-user-#{:rand.uniform(1000)}",
           user_email: user_email,
           image_data: png_binary,
@@ -46,9 +46,10 @@ defmodule Image do
           pdf_quality: Keyword.get(opts, :quality, "high"),
           strip_metadata: Keyword.get(opts, :strip_metadata, true),
           max_width: Keyword.get(opts, :max_width, 1_000),
-          max_height: Keyword.get(opts, :max_height, 1_000)
+          max_height: Keyword.get(opts, :max_height, 1_000),
+          job_id: generate_job_id()
         }
-        |> Mcsv.V2.ImageConversionRequest.encode()
+        |> Mcsv.V3.ImageConversionRequest.encode()
 
       Logger.info("Sending Image to User service...: #{png_size}")
 
@@ -56,5 +57,11 @@ defmodule Image do
       trace_headers = OtelNats.inject()
       :ok = Gnat.pub(:gnat, "user.convert.to_pdf", request, headers: trace_headers)
     end
+  end
+
+  defp generate_job_id do
+    timestamp = System.system_time(:microsecond)
+    random = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
+    "#{timestamp}_#{random}"
   end
 end

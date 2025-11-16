@@ -23,8 +23,12 @@ defmodule ClientService.NatsConsumer do
     # Extract trace context from incoming NATS message and attach it
     headers = Map.get(message, :headers, [])
     _token = OtelNats.extract_and_attach(headers)
+    link = OtelNats.extract_link(headers)
 
-    Tracer.with_span "ClientService.NatsConsumer.image.converted" do
+    # Create span with link to the User service's relay span
+    span_opts = if link, do: %{links: [link]}, else: %{}
+
+    Tracer.with_span "ClientService.NatsConsumer.image.converted", span_opts do
       resp = Mcsv.V2.ImageConversionResponse.decode(body)
       Logger.info("[Client] Received converted image: #{resp.pdf_url}")
     end

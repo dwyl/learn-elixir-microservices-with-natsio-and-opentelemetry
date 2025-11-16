@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package mcsv.v3;
+
+
+// Enqueue a job
+message EnqueueJobRequest {
+  string worker = 1;              // Worker module name (e.g., "EmailWorker")
+  string queue = 2;               // Queue name (e.g., "emails", "default")
+  map<string, string> args = 3;   // Job arguments as key-value pairs
+  int32 priority = 4;             // Job priority (0-3, default 0)
+  int32 max_attempts = 5;         // Max retry attempts (default 20)
+
+  // Optional scheduling
+  oneof schedule {
+    int64 scheduled_at = 6;       // Unix timestamp (schedule for specific time)
+    int32 schedule_in = 7;        // Seconds from now
+  }
+}
+
+message EnqueueJobResponse {
+  int64 job_id = 1;
+  string state = 2;               // "scheduled", "available", "executing", etc.
+  int64 scheduled_at = 3;         // Unix timestamp when job will run
+  bool success = 4;
+  string error = 5;
+}
+
+// Get job status
+message GetJobStatusRequest {
+  int64 job_id = 1;
+}
+
+message JobStatusResponse {
+  int64 job_id = 1;
+  string worker = 2;
+  string queue = 3;
+  string state = 4;               // "available", "scheduled", "executing", "retryable", "completed", "discarded", "cancelled"
+  map<string, string> args = 5;
+  int32 attempt = 6;
+  int32 max_attempts = 7;
+  int64 attempted_at = 8;         // Unix timestamp
+  string attempted_by = 9;        // Node that processed the job
+  repeated string errors = 10;    // Error messages from failed attempts
+  int64 inserted_at = 11;         // Unix timestamp
+  int64 scheduled_at = 12;        // Unix timestamp
+  int64 completed_at = 13;        // Unix timestamp
+}
+
+// List jobs
+message ListJobsRequest {
+  string queue = 1;               // Filter by queue (optional)
+  string state = 2;               // Filter by state (optional)
+  string worker = 3;              // Filter by worker (optional)
+  int32 limit = 4;                // Max results (default 100)
+}
+
+// Cancel job
+message CancelJobRequest {
+  int64 job_id = 1;
+}
+
+message CancelJobResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Retry job
+message RetryJobRequest {
+  int64 job_id = 1;
+}
+
+message RetryJobResponse {
+  bool success = 1;
+  string message = 2;
+  int64 scheduled_at = 3;         // When the retry is scheduled
+}
+
+// Queue stats
+message GetQueueStatsRequest {
+  string queue = 1;               // Specific queue or empty for all
+}
+
+message GetQueueStatsResponse {
+  message QueueStats {
+    string queue = 1;
+    int32 available = 2;          // Jobs ready to run
+    int32 scheduled = 3;          // Jobs scheduled for future
+    int32 executing = 4;          // Jobs currently running
+    int32 retryable = 5;          // Jobs that failed and will retry
+    int32 completed = 6;          // Recently completed jobs
+    int32 discarded = 7;          // Jobs that failed permanently
+  }
+
+  repeated QueueStats stats = 1;
+}

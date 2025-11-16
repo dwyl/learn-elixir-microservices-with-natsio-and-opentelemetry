@@ -17,7 +17,7 @@ defmodule Protos.MixProject do
     ]
   end
 
-  defp protos_version, do: "V2"
+  defp protos_version, do: "V3"
 
   # Run "mix help compile.app" to learn about applications.
   def application do

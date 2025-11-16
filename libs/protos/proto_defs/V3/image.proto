@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package mcsv.v3;
+
+// Go package path (required for OpenAPI generation)
+option go_package = "github.com/msvc/protos";
+
+// Request to convert an image (PNG/JPEG) to PDF
+message ImageConversionRequest {
+  string user_id = 1;
+  string user_email = 2;
+
+  // EITHER image_url OR image_data (prefer image_url for microservices)
+  string image_url = 3;         // URL to fetch image from (e.g., http://user_svc/ImageLoader/job_123)
+  // Input format (png, jpeg, jpg)
+  string input_format = 4;
+  
+  // PDF conversion options
+  string pdf_quality = 5;       // "low", "medium", "high", "lossless"
+  bool strip_metadata = 6;      // Remove EXIF data
+  int32 max_width = 7;          // Resize if larger (0 = no resize)
+  int32 max_height = 8;         // Resize if larger (0 = no resize)
+  
+  // Storage tracking - used to clean up stored images
+  string job_id = 9;       // Unique job ID for tracking
+  bytes image_data = 10;
+}
+
+// Response after image conversion
+message ImageConversionResponse {
+  bool success = 1;
+  string message = 2;
+
+  // Metrics
+  int64 input_size = 4;          // Original image size in bytes
+  int64 output_size = 5;         // PDF size in bytes
+
+  // Image info
+  int32 width = 6;
+  int32 height = 7;
+
+  // Storage tracking - separate fields for PNG and PDF
+  string job_id = 8;         // PDF storage_id (result)
+  string pdf_url = 9;           // MinIO/S3 URL where PDF is stored
+
+  // User context
+  string user_email = 10;        // User who initiated the conversion
+}

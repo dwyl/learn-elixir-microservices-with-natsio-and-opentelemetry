@@ -14,9 +14,13 @@ config :image_svc, ImageService.PromEx,
 config :image_svc, :jetstream_streams, [
   %{
     name: "IMAGES",
-    subjects: ["image.>"],
+    subjects: ["image.convert.>"],
     consumers: [
-      %{name: "processor", filter_subject: "image.convert", deliver_policy: "all"}
+      %{
+        name: "pdf_processor",
+        filter_subject: "image.convert.to_pdf",
+        deliver_policy: "all"
+      }
     ]
   }
 ]

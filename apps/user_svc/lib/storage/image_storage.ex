@@ -17,35 +17,32 @@ defmodule ImageStorage do
 
   @doc """
   Store image in MinIO and return storage_id.
-
-  ## Examples
-      iex> ImageStorage.store(png_binary, "user123", "png")
-      {:ok, storage_id}
   """
-  def store(image_binary, user_id, format \\ "png") when is_binary(image_binary) do
-    case Storage.store(image_binary, user_id, format) do
-      {:ok, %{storage_id: storage_id, size: size}} ->
+  def store(image_binary, job_id, user_id, format \\ "png") when is_binary(image_binary) do
+    case Storage.store(image_binary, job_id, user_id, format) do
+      {:ok, {job_id, url, size}} ->
         Logger.info(
-          "[User][ImageStorage] Stored #{storage_id} for user #{user_id} (#{size} bytes)"
+          "[User][ImageStorage] Stored #{job_id} for user #{user_id} (#{size} bytes) at #{url}"
         )
 
-        {:ok, storage_id}
+        {:ok, {job_id, url, size}}
 
       {:error, reason} ->
         Logger.error("[User][ImageStorage] Failed to store: #{inspect(reason)}")
+        OpenTelemetry.Tracer.set_status(:error, "Storage #{job_id} failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
   @doc """
-  Retrieve an image by storage_id from MinIO.
+  Retrieve an image by job_id from MinIO.
 
   Returns {:ok, binary} or {:error, reason}
   """
-  def fetch(storage_id) do
-    case Storage.fetch(storage_id) do
+  def fetch(job_id) do
+    case Storage.fetch(job_id) do
       {:ok, binary} ->
-        Logger.info("[User][ImageStorage] Retrieved #{storage_id} (#{byte_size(binary)} bytes)")
+        Logger.info("[User][ImageStorage] Retrieved #{job_id} (#{byte_size(binary)} bytes)")
         {:ok, binary}
 
       {:error, reason} ->
@@ -59,10 +56,10 @@ defmodule ImageStorage do
 
   Generates a fresh presigned URL each time (they expire after 1 hour anyway).
   """
-  def get_presigned_url(storage_id) do
+  def get_presigned_url(job_id) do
     try do
-      url = Storage.generate_presigned_url(storage_id)
-      Logger.debug("[User][ImageStorage] Generated presigned URL for #{storage_id}")
+      url = Storage.generate_presigned_url(job_id)
+      Logger.debug("[User][ImageStorage] Generated presigned URL for #{job_id}")
       {:ok, url}
     rescue
       error ->
@@ -74,14 +71,14 @@ defmodule ImageStorage do
   @doc """
   Delete an image from MinIO storage (called after conversion is complete).
   """
-  def delete(storage_id) do
-    case Storage.delete(storage_id) do
+  def delete(job_id) do
+    case Storage.delete(job_id) do
       :ok ->
-        Logger.info("[User][ImageStorage] Deleted #{storage_id}")
+        Logger.info("[User][ImageStorage] Deleted #{job_id}")
         :ok
 
       {:error, reason} ->
-        Logger.warning("[User][ImageStorage] Failed to delete #{storage_id}: #{inspect(reason)}")
+        Logger.warning("[User][ImageStorage] Failed to delete #{job_id}: #{inspect(reason)}")
         {:error, :not_found}
     end
   end

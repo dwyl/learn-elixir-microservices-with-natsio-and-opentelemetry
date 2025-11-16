@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package mcsv.v3;
+
+message EmailRequest {
+  string user_id = 1;
+  string user_name = 2;
+  string user_email = 3;
+  string email_type = 4;  // "welcome", "notification", "user_updated"
+  map<string, string> variables = 5;  // Template variables
+}
+
+message EmailResponse {
+  bool success = 1;
+  string message = 2;
+  string user_id = 3;  // For tracking
+  string user_email = 4;  // Should be string, not int64
+}

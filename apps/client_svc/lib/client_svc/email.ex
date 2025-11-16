@@ -26,13 +26,13 @@ defmodule Email do
       Tracer.set_attribute(:type, type)
 
       msg =
-        %Mcsv.V2.UserRequest{
+        %Mcsv.V3.UserRequest{
           id: "#{i}",
           name: "PB User #{i}",
           email: "user#{i}@example.com",
           type: enum_type
         }
-        |> Mcsv.V2.UserRequest.encode()
+        |> Mcsv.V3.UserRequest.encode()
 
       # Inject trace context into outgoing NATS message headers
       trace_headers = OtelNats.inject()

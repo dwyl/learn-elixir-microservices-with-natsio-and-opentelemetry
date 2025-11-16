@@ -22,45 +22,40 @@ defmodule Storage do
     - format: File extension (e.g., "png", "pdf")
 
   ## Returns
-    {:ok, %{storage_id: string, presigned_url: string, size: integer}}
+    {:ok, %{job_id: string, presigned_url: string, size: integer}}
     {:error, reason}
 
   ## Examples
       iex> Storage.store(png_binary, "user123", "png")
-      {:ok, %{storage_id: "...", presigned_url: "http://...", size: 1024}}
+      {:ok, %{job_id: "...", presigned_url: "http://...", size: 1024}}
   """
-  def store(binary, user_id, format \\ "png") when is_binary(binary) do
+  def store(binary, job_id, user_id, format \\ "png") when is_binary(binary) do
     Tracer.with_span "storage.store" do
-      storage_id = generate_storage_id(format)
       size = byte_size(binary)
 
       # Add attributes (metadata) to the span
       Tracer.set_attributes([
-        {"storage.id", storage_id},
+        {"storage.id", job_id},
         {"user.id", user_id},
         {"file.format", format},
         {"file.size", size}
       ])
 
-      case upload_to_s3(storage_id, binary) do
-        {:ok, _response} ->
-          presigned_url = generate_presigned_url(storage_id)
+      name = "#{job_id}.#{format}"
 
+      case upload_to_s3(name, binary) do
+        {:ok, _response} ->
+          presigned_url = generate_presigned_url(name)
           # Record success event
           Tracer.set_attribute("storage.presigned_url", presigned_url)
           Tracer.add_event("storage.upload.success", [{"size", size}])
           Tracer.set_status(OpenTelemetry.status(:ok))
 
-          {:ok,
-           %{
-             storage_id: storage_id,
-             presigned_url: presigned_url,
-             size: size
-           }}
+          {:ok, {job_id, presigned_url, size}}
 
         {:error, reason} ->
           # Record error in span
-          Logger.error("[User][Storage] Failed to upload #{storage_id}: #{inspect(reason)}")
+          Logger.error("[User][Storage] Failed to upload #{job_id}: #{inspect(reason)}")
           Tracer.set_status(OpenTelemetry.status(:error, "Upload failed: #{inspect(reason)}"))
           Tracer.add_event("storage.upload.failed", [{"error", inspect(reason)}])
           {:error, reason}
@@ -69,10 +64,10 @@ defmodule Storage do
   end
 
   @doc """
-  Fetch binary data from MinIO by storage_id.
+  Fetch binary data from MinIO by job_id.
 
   ## Parameters
-    - storage_id: The unique identifier returned from store/3
+    - job_id: The unique identifier returned from store/3
 
   ## Returns
     {:ok, binary}
@@ -82,11 +77,11 @@ defmodule Storage do
       iex> Storage.fetch("1730000000_abc123.png")
       {:ok, <<binary data>>}
   """
-  def fetch(storage_id) do
+  def fetch(job_id) do
     Tracer.with_span "storage.fetch" do
-      Tracer.set_attribute("storage.id", storage_id)
+      Tracer.set_attribute("storage.id", job_id)
 
-      case ExAws.S3.get_object(@bucket, storage_id)
+      case ExAws.S3.get_object(@bucket, job_id)
            |> ExAws.request() do
         {:ok, %{body: body}} ->
           size = byte_size(body)
@@ -96,7 +91,7 @@ defmodule Storage do
           {:ok, body}
 
         {:error, reason} ->
-          Logger.error("[User][Storage] Failed to fetch #{storage_id}: #{inspect(reason)}")
+          Logger.error("[User][Storage] Failed to fetch #{job_id}: #{inspect(reason)}")
           Tracer.set_status(OpenTelemetry.status(:error, "Fetch failed: #{inspect(reason)}"))
           Tracer.add_event("storage.fetch.failed", [{"error", inspect(reason)}])
           {:error, reason}
@@ -111,11 +106,11 @@ defmodule Storage do
       iex> Storage.delete("1730000000_abc123.png")
       :ok
   """
-  def delete(storage_id) do
+  def delete(job_id) do
     Tracer.with_span "storage.delete" do
-      Tracer.set_attribute("storage.id", storage_id)
+      Tracer.set_attribute("storage.id", job_id)
 
-      case ExAws.S3.delete_object(@bucket, storage_id)
+      case ExAws.S3.delete_object(@bucket, job_id)
            |> ExAws.request() do
         {:ok, _response} ->
           Logger.info("[User][Storage] Successfully delete object")
@@ -124,7 +119,7 @@ defmodule Storage do
           :ok
 
         {:error, reason} ->
-          Logger.error("[User][Storage] Failed to delete #{storage_id}: #{inspect(reason)}")
+          Logger.error("[User][Storage] Failed to delete #{job_id}: #{inspect(reason)}")
           Tracer.set_status(OpenTelemetry.status(:error, "Delete failed: #{inspect(reason)}"))
           Tracer.add_event("storage.delete.failed", [{"error", inspect(reason)}])
           {:error, reason}
@@ -159,7 +154,7 @@ defmodule Storage do
   end
 
   @doc """
-  Generate a presigned GET URL for a storage_id.
+  Generate a presigned GET URL for a job_id.
 
   The URL is valid for #{@presigned_url_expiry} seconds (1 hour).
 
@@ -167,14 +162,14 @@ defmodule Storage do
       iex> Storage.generate_presigned_url("1730000000_abc123.png")
       "http://localhost:9000/msvc-images/1730000000_abc123.png?X-Amz-..."
   """
-  def generate_presigned_url(storage_id) do
+  def generate_presigned_url(job_id) do
     config = ExAws.Config.new(:s3)
 
     case ExAws.S3.presigned_url(
            config,
            :get,
            @bucket,
-           storage_id,
+           job_id,
            expires_in: @presigned_url_expiry
          ) do
       {:ok, url} ->
@@ -187,20 +182,20 @@ defmodule Storage do
 
   # Private helpers
 
-  defp upload_to_s3(storage_id, binary) do
+  defp upload_to_s3(job_id, binary) do
     # Nested span for S3 upload operation
     Tracer.with_span "storage.s3.put_object" do
-      content_type = get_content_type(storage_id)
+      content_type = get_content_type(job_id)
 
       Tracer.set_attributes([
         {"s3.bucket", @bucket},
-        {"s3.key", storage_id},
+        {"s3.key", job_id},
         {"content.type", content_type},
         {"content.size", byte_size(binary)}
       ])
 
       result =
-        ExAws.S3.put_object(@bucket, storage_id, binary,
+        ExAws.S3.put_object(@bucket, job_id, binary,
           content_type: content_type,
           # Important: inline instead of attachment = view in browser
           content_disposition: "inline"
@@ -226,11 +221,5 @@ defmodule Storage do
       ".webp" -> "image/webp"
       _ -> "application/octet-stream"
     end
-  end
-
-  defp generate_storage_id(format) do
-    timestamp = System.system_time(:microsecond)
-    random = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
-    "#{timestamp}_#{random}.#{format}"
   end
 end

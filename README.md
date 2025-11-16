@@ -159,6 +159,20 @@ Scale consumers - add more pull consumers for parallelism
 Guaranteed delivery - messages persist until acknowledged
 Distributed tracing - full visibility across services
 
+- Debug Jetstream
+
+```elixir
+{:ok, %{body: body}} = Gnat.request(:gnat, "$JS.API.STREAM.INFO.IMAGES", "", receive_timeout: 2000) 
+Jason.decode!(body) |> Map.get("state")
+```
+
+- Clean/Delete queue:
+
+```elixir
+{:ok, _} = Gnat.request(:gnat, "$JS.API.STREAM.PURGE.IMAGES", Jason.encode!(%{}), receive_timeout: 2000)
+```
+
+
 ```elixir
 
 Publishing with Idempotency
@@ -521,6 +535,45 @@ You can have a higher or more robust level of integration; check the following [
 [<img src="https://github.com/ndrean/micro_ex/blob/main/priv/ALeopardi-share-protobuf.png" with="300">](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/)
 
 ## OpenTelemetry
+
+Summary: Span Links for Continuous Distributed Traces
+I've successfully implemented span links to make the distributed trace appear "continuous" by visually connecting the async return path back to the original request.
+What Changed:
+1. Enhanced /libs/otel_nats/lib/otel_nats.ex with span linking support:
+inject_with_link() - Injects both trace context AND the current span_id/trace_id as custom headers (x-span-id, x-trace-id)
+extract_link(headers) - Extracts the span_id/trace_id from headers and creates an OpenTelemetry span link
+Helper functions for converting span/trace IDs to/from hex strings
+2. Updated /apps/image_svc/lib/image_svc/broadway_image_processor.ex:
+Changed OtelNats.inject() to OtelNats.inject_with_link() when publishing to user.image.converted
+This captures the Broadway processor's span_id and includes it in the response message
+3. Updated /apps/user_svc/lib/user_svc/nats_consumer.ex:
+user.image.converted handler now extracts the link and creates the span with links: [link]
+Changed to use OtelNats.inject_with_link() when forwarding to client.image.converted
+This creates a visual link from the User service span back to the Image service span
+4. Updated /apps/client_svc/lib/client_svc/nats_consumer.ex:
+client.image.converted handler extracts the link and creates the span with links: [link]
+This creates a visual link from the Client service span back to the User service span
+How It Works:
+Forward path (request):
+Client → User → Image
+Uses standard trace context propagation (same trace_id, parent-child relationships) Return path (response):
+Image → User → Client
+Now uses span links instead of trying to fake parent-child relationships:
+Image service completes conversion and calls OtelNats.inject_with_link()
+Captures its current span_id: abc123
+Sends message with headers: {"x-span-id": "abc123", "x-trace-id": "xyz789", ...}
+User service receives message and calls OtelNats.extract_link(headers)
+Extracts span_id abc123 and creates a link
+Creates new span with links: [link_to_abc123]
+Jaeger/trace viewers show a visual link line connecting User span → Image span
+Client service does the same, linking back to User service span
+Result:
+In Jaeger/trace viewers, you'll now see:
+The forward path as a normal parent-child tree
+The return path spans connected via span links (shown as dotted lines or link indicators)
+All spans in the same trace (same trace_id)
+Visual continuity showing the complete async round-trip flow
+This is the correct way to model async fire-and-forget patterns in distributed tracing - span links show relationships without implying synchronous causality.
 
 ### Setup
 

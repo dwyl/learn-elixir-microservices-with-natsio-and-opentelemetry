@@ -1,7 +1,18 @@
 defmodule EmailService.Application do
   use Application
 
-  @moduledoc false
+  @moduledoc """
+  We defined two pullconsumers here: Welcome and Notification.
+
+  The Welcome consumer handles sending welcome emails to new users,
+  while the Notification consumer manages sending various notifications.
+
+  We need to define two streams in JetStream for these consumers to function properly:
+
+  1. EMAILS Stream: This stream will handle all email-related messages, including welcome emails and notifications.
+  2. NOTIFICATIONS Stream: This stream will specifically manage notification messages.
+
+  """
 
   require Logger
 
@@ -27,9 +38,22 @@ defmodule EmailService.Application do
   end
 
   defp setup_jetstream do
-    # Wait for Gnat connection to be established
-    Process.sleep(1000)
-    JetstreamSetup.setup_from_config(:email_svc, :gnat)
+    case Process.whereis(:gnat) do
+      nil ->
+        Process.send_after(self(), :ready, 20)
+
+        receive do
+          :ready ->
+            setup_jetstream()
+        after
+          1000 ->
+            raise "Timeout waiting for NATS connection"
+        end
+
+      pid when is_pid(pid) ->
+        :ok = JetstreamSetup.setup_from_config(:email_svc, :gnat)
+        Logger.info("[NATS] Jetstream is ready")
+    end
   end
 
   defp gnat_supervisor_settings do
@@ -37,27 +61,12 @@ defmodule EmailService.Application do
       name: :gnat,
       backoff_period: 4_000,
       connection_settings: [
-        %{host: nats_host(), port: nats_port()}
+        %{
+          host: System.get_env("NATS_HOST", "localhost"),
+          port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+        }
       ]
     }
-  end
-
-  # defp consumer_supervisor_settings do
-  #   %{
-  #     connection_name: :gnat,
-  #     consuming_function: {EmailService.NatsConsumer, :handle_message},
-  #     subscription_topics: [
-  #       %{topic: "email.send"}
-  #     ]
-  #   }
-  # end
-
-  defp nats_host do
-    System.get_env("NATS_HOST", "localhost")
-  end
-
-  defp nats_port do
-    System.get_env("NATS_PORT", "4222") |> String.to_integer()
   end
 
   defp topologies do

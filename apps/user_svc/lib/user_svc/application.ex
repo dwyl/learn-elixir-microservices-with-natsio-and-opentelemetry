@@ -18,6 +18,7 @@ defmodule UserSvc.Application do
 
     children = [
       UserSvc.PromEx,
+      {Task.Supervisor, name: UserSvc.TaskSupervisor},
       UserSvc.MinIOCleaner,
       {Cluster.Supervisor, [topologies(), [name: UserSvc.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},

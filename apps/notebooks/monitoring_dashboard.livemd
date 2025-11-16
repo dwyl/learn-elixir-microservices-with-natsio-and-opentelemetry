@@ -169,7 +169,7 @@ Enum.to_list(1..up_to)
 ```
 
 ```elixir
-if = Kino.Frame.new()
+# if = Kino.Frame.new()
 
 iframe_html = """
   <iframe
@@ -181,8 +181,8 @@ iframe_html = """
   """
 
 
-Kino.Frame.render(if, Kino.HTML.new(iframe_html))
-if
+#Kino.Frame.render(if, Kino.HTML.new(iframe_html))
+# if
 ```
 
 ## Image flow
@@ -214,7 +214,7 @@ Then check Jaeger and the Grafana dashboards
 
 ```elixir
 int = 100
-nb = 100
+nb = 500
 
 Stream.interval(int)
 |> Stream.take(nb)
@@ -229,7 +229,7 @@ Stream.interval(int)
 Then check Jaeger and the Grafana dashboards
 
 ```elixir
-1..nb
+1..500
 |> Enum.to_list()
 |> Stream.take(nb)
 |> Task.async_stream(fn i -> convert.(bin_png, user_email.(i)) end,

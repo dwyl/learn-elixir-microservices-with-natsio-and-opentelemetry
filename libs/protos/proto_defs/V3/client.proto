@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package mcsv.v3;
+
+message ImageConvertedNotification {
+  string user_email = 1;
+  bool success = 2;
+  string message = 3;
+  int64 input_size = 4;
+  int64 output_size = 5;
+  int32 width = 6;
+  int32 height = 7;
+  string storage_id = 8;
+  string original_storage_id = 9;
+  string pdf_url = 10;
+}
+
+message ImageConvertedResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+
