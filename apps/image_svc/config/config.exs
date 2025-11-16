@@ -10,6 +10,17 @@ config :image_svc, ImageService.PromEx,
   grafana: :disabled,
   metrics_server: :disabled
 
+# Configure JetStream streams for this service
+config :image_svc, :jetstream_streams, [
+  %{
+    name: "IMAGES",
+    subjects: ["image.>"],
+    consumers: [
+      %{name: "processor", filter_subject: "image.convert", deliver_policy: "all"}
+    ]
+  }
+]
+
 # OpenTelemetry -------------------------------------------------------
 config :opentelemetry,
   span_processor: :batch,

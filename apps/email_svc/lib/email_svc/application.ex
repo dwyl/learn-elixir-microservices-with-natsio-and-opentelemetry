@@ -15,12 +15,21 @@ defmodule EmailService.Application do
       EmailServiceWeb.Telemetry,
       {Cluster.Supervisor, [topologies(), [name: EmailService.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
-      {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
+      # {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
+      {Task, &setup_jetstream/0},
+      PullConsumer.Welcome,
+      PullConsumer.Notification,
       EmailServiceWeb.Endpoint
     ]
 
     opts = [strategy: :one_for_one, name: EmailService.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp setup_jetstream do
+    # Wait for Gnat connection to be established
+    Process.sleep(1000)
+    JetstreamSetup.setup_from_config(:email_svc, :gnat)
   end
 
   defp gnat_supervisor_settings do
@@ -33,15 +42,15 @@ defmodule EmailService.Application do
     }
   end
 
-  defp consumer_supervisor_settings do
-    %{
-      connection_name: :gnat,
-      consuming_function: {EmailService.NatsConsumer, :handle_message},
-      subscription_topics: [
-        %{topic: "email.send"}
-      ]
-    }
-  end
+  # defp consumer_supervisor_settings do
+  #   %{
+  #     connection_name: :gnat,
+  #     consuming_function: {EmailService.NatsConsumer, :handle_message},
+  #     subscription_topics: [
+  #       %{topic: "email.send"}
+  #     ]
+  #   }
+  # end
 
   defp nats_host do
     System.get_env("NATS_HOST", "localhost")

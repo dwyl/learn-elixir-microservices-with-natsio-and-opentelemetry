@@ -59,7 +59,7 @@ defmodule EmailSvc.MixProject do
     [
       {:libcluster, "~> 3.5"},
       {:phoenix, "~> 1.8.1"},
-      {:req, "~> 0.5.15"},
+      # {:req, "~> 0.5.15"},
       {:bandit, "~> 1.8"},
       {:gnat, "~> 1.11.1"},
       {:jetstream, "~> 0.0.9"},
@@ -70,6 +70,7 @@ defmodule EmailSvc.MixProject do
       {:protos, path: "../../libs/protos"},
       {:protobuf, "~> 0.15.0"},
       {:otel_nats, path: "../../libs/otel_nats"},
+      {:jetstream_setup, path: "../../libs/jetstream_setup"},
 
       # Telemetry, OpenTelemetry for distributed tracing
       {:telemetry, "~> 1.3"},
@@ -77,7 +78,7 @@ defmodule EmailSvc.MixProject do
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:opentelemetry, "~> 1.7"},
-      {:opentelemetry_req, "~> 1.0"},
+      # {:opentelemetry_req, "~> 1.0"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:tls_certificate_check, "~> 1.29"},

@@ -1,7 +1,13 @@
 defmodule ClientService.Application do
   use Application
 
-  @moduledoc false
+  @moduledoc """
+  The Client Service Application sets:
+  - up OpenTelemetry instrumentation and PromEx metrics
+  - a cluster supervisor for node clustering using EPMD with hardcoded service nodes
+  - starts the Phoenix Endpoint for HTTP requests: "/health" and "/metrics"
+  - supervises NATS connections and consumers for handling incoming messages related to email delivery and image conversion. We used the **push** model here since the Client Service primarily receives notifications rather than processing requests.
+  """
 
   require Logger
 
@@ -9,7 +15,7 @@ defmodule ClientService.Application do
     children = [
       ClientService.PromEx,
       ClientServiceWeb.Telemetry,
-      {Cluster.Supervisor, [topologies(), [name: ClientService.Application.ClusterSupervisor]]},
+      {Cluster.Supervisor, [topologies(), [name: ClientService.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
       {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
       ClientServiceWeb.Endpoint
@@ -24,7 +30,10 @@ defmodule ClientService.Application do
       name: :gnat,
       backoff_period: 4_000,
       connection_settings: [
-        %{host: nats_host(), port: nats_port()}
+        %{
+          host: System.get_env("NATS_HOST", "localhost"),
+          port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+        }
       ]
     }
   end
@@ -38,14 +47,6 @@ defmodule ClientService.Application do
         %{topic: "client.image.converted"}
       ]
     }
-  end
-
-  defp nats_host do
-    System.get_env("NATS_HOST", "localhost")
-  end
-
-  defp nats_port do
-    System.get_env("NATS_PORT", "4222") |> String.to_integer()
   end
 
   defp topologies do

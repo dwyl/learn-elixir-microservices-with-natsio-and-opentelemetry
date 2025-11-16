@@ -4,17 +4,12 @@ defmodule Image do
 
   ## Examples
 
-      iex> ImageClient.convert_png("priv/test.png", "user@example.com")
-
-      iex> ImageClient.convert_png("priv/large.png", "user@example.com",
-        quality: "high",
-        max_width: 2000
-      )
-
+      iex> Image.convert_png("priv/test.png", "user@example.com")
+      :ok
       iex> 1..1000 |> Enum.to_list()
           |> Task.async_stream(
               fn i ->
-                ImageClient.convert_png("priv/test.png", "user@example.com")
+                Image.convert_png("priv/test.png", "user@example.com")
                 end,
               max_concurrency: 20,
               ordered: false)
@@ -25,6 +20,17 @@ defmodule Image do
   require Logger
   require OpenTelemetry.Tracer, as: Tracer
 
+  @doc """
+  Convert a PNG binary to PDF by sending a NATS message to the User service. Accepts optional parameters: [:input_format, :pdf_quality, :max_width, :max_height, :strip_metadata]
+
+  ## Examples
+
+      iex> Image.convert_png("priv/large.png", "user@example.com",
+        quality: "high",
+        max_width: 2000
+      )
+  """
+  @spec convert_png(binary(), String.t(), keyword()) :: :ok
   def convert_png(png_binary, user_email, opts \\ []) do
     Tracer.with_span "image_client.convert_png", %{kind: :client} do
       Tracer.set_attribute("user.email", user_email)
@@ -39,12 +45,12 @@ defmodule Image do
           input_format: "png",
           pdf_quality: Keyword.get(opts, :quality, "high"),
           strip_metadata: Keyword.get(opts, :strip_metadata, true),
-          max_width: Keyword.get(opts, :max_width, 0),
-          max_height: Keyword.get(opts, :max_height, 0)
+          max_width: Keyword.get(opts, :max_width, 1_000),
+          max_height: Keyword.get(opts, :max_height, 1_000)
         }
         |> Mcsv.V2.ImageConversionRequest.encode()
 
-      Logger.info("Sending to User service...: #{png_size}")
+      Logger.info("Sending Image to User service...: #{png_size}")
 
       # Inject trace context into outgoing NATS message headers
       trace_headers = OtelNats.inject()

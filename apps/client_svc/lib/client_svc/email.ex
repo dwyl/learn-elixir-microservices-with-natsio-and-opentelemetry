@@ -6,17 +6,31 @@ defmodule Email do
 
   @doc """
   Create a single user via NATS pub/sub.
+  ## Examples
+
+      iex> Email.create(1, :welcome)
+      :ok
+
+      iex> Email.create(2, :notification)
+      :ok
   """
-  def create(i) do
+  @spec create(integer(), :welcome | :notification) :: :ok
+  def create(i, type) do
+    enum_type =
+      case type do
+        :welcome -> :EMAIL_TYPE_WELCOME
+        :notification -> :EMAIL_TYPE_NOTIFICATION
+      end
+
     Tracer.with_span "#{__MODULE__}.create/1" do
-      Tracer.set_attribute(:value, i)
+      Tracer.set_attribute(:type, type)
 
       msg =
         %Mcsv.V2.UserRequest{
           id: "#{i}",
           name: "PB User #{i}",
           email: "user#{i}@example.com",
-          type: :EMAIL_TYPE_NOTIFICATION
+          type: enum_type
         }
         |> Mcsv.V2.UserRequest.encode()
 

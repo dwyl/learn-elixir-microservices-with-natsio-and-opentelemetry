@@ -16,16 +16,14 @@ Mix.install([
 ```elixir
 # Create a grid of mini dashboards
 Kino.Layout.grid([
-  Kino.Markdown.new("### [Jaeger](http://localhost:16686)\nDistributed Tracing"),
-  Kino.Markdown.new("### [Grafana](http://localhost:3000)\nUnified Observability"),
-  Kino.Markdown.new("### [Prometheus](http://localhost:9090)\nMetrics & Alerts"),
-  Kino.Markdown.new("### [Swagger](http://localhost:8087)\nAPI Documentation"),
-  Kino.Markdown.new("### [MinIO](http://localhost:9001)\nObject Storage"),
-  Kino.Markdown.new("### [Livebook](http://localhost:8090)\nInteractive Notebooks")
+  Kino.Markdown.new("### [Jaeger](http://jaeger.localhost:8080)\nDistributed Tracing"),
+  Kino.Markdown.new("### [Grafana](http://grafana.localhost:8080)\nUnified Observability"),
+  Kino.Markdown.new("### [Prometheus](http://prometheus.localhost:8080)\nMetrics & Alerts"),
+  Kino.Markdown.new("### [MinIO](http://minio.localhost:8080)\nObject Storage"),
 ], columns: 3)
 ```
 
-## Connect to Cluster
+## Connect to the services
 
 ```elixir
 # Set cookie to match your services
@@ -53,7 +51,7 @@ Kino.DataTable.new(results, keys: [:connected, :failed, :ignored])
 
 ## Health checks
 
-#### Query "/health" endpoints of all the Elixir services from Docker
+#### Query "/health" endpoints of all the Elixir services from the Docker network
 
 ```elixir
 defmodule HealthCheck do
@@ -96,7 +94,7 @@ Kino.Frame.append(frame, table)
 
 
 # Update every 10 seconds
-Stream.interval(10_000)
+Stream.interval(30_000)
 |> Stream.take(10)
 |> Kino.animate(fn _-> 
   health = HealthCheck.check_all()
@@ -106,10 +104,11 @@ end)
 
 ```
 
-## ERPC calls to check the services
+## ERPC calls to check to each connected service
 
 ```elixir
-node_info =
+defmodule NodeInfo do
+  def check(services_map) do
   Map.values(services_map)
   |> Enum.map(fn node ->
       elixir_version = :erpc.call(node, System, :version, [])
@@ -125,25 +124,34 @@ node_info =
         status: "🟢 Online"
       }
   end)
+end
+end
 
-Kino.DataTable.new(node_info)
-```
+frame = Kino.Frame.new() |> Kino.render()
+table = Kino.DataTable.new(NodeInfo.check(services_map))
+Kino.Frame.append(frame, table)
 
-## NATS.IO
-
-### Setup
-
-```elixir
-{:ok, gnat} = Gnat.start_link(%{host: "nats-server", port: 4222})
+Stream.interval(30_000)
+|> Stream.take(10)
+|> Kino.animate(fn _-> 
+  #health = HealthCheck.check_all()
+  Kino.DataTable.update(table, NodeInfo.check(services_map))
+  Kino.Frame.render(frame, table)
+end)
 ```
 
 ## Email flow
 
 ```elixir
 fqdn_client = services_map.client
-create = fn i -> :erpc.call(fqdn_client, Client, :create, [i]) end
 
-create.(1)
+create = fn i, type -> :erpc.call(fqdn_client, Email, :create, [i, type]) end
+```
+
+A single call:
+
+```elixir
+create.(1, :notification)
 ```
 
 #### Hammer the services via the Email flow
@@ -151,10 +159,30 @@ create.(1)
 ```elixir
 up_to = 500
 
-  
 Enum.to_list(1..up_to)
-|> Task.async_stream(fn i -> create.(i) end)
+|> Task.async_stream(
+  fn i -> create.(i, Enum.random([:welcome, :notification])) end,
+  ordered: false,
+  max_concurrency: 10
+)
 |> Stream.run()
+```
+
+```elixir
+if = Kino.Frame.new()
+
+iframe_html = """
+  <iframe
+    src="http://jaeger.localhost:8080"
+    width="100%"
+    height="800px"
+    style="border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  </iframe>
+  """
+
+
+Kino.Frame.render(if, Kino.HTML.new(iframe_html))
+if
 ```
 
 ## Image flow
@@ -169,16 +197,20 @@ Enum.to_list(1..up_to)
 #### Test the image flow
 
 ```elixir
-convert = fn bin, i -> 
-  :erpc.call(fqdn_client, ImageClient, :convert_png, [bin, "m#{i}@com"])
+user_email = fn i -> "user_#{i}@com" end
+  
+convert = fn bin, email -> 
+  :erpc.call(fqdn_client, Image, :convert_png, [bin, email])
 end
 
-convert.(bin_png, 1)
+convert.(bin_png, user_email.(1))
 ```
 
 #### Image Stress tests
 
-##### Run every 100ms
+##### Hammer every 100ms the Image flow
+
+Then check Jaeger and the Grafana dashboards
 
 ```elixir
 int = 100
@@ -186,62 +218,27 @@ nb = 100
 
 Stream.interval(int)
 |> Stream.take(nb)
-|> Task.async_stream(fn i -> convert.(bin_png, i) end,
+|> Task.async_stream(fn i -> convert.(bin_png, user_email.(i)) end,
   ordered: false,
   max_concurrency: 10)
 |> Stream.run()
 ```
 
-#### Hammer concurrently via image flow
+#### Hammer concurrently the image flow
+
+Then check Jaeger and the Grafana dashboards
 
 ```elixir
 1..nb
 |> Enum.to_list()
 |> Stream.take(nb)
-|> Task.async_stream(fn i -> convert.(bin_png, i) end,
+|> Task.async_stream(fn i -> convert.(bin_png, user_email.(i)) end,
   ordered: false,
   max_concurrency: 10)
 |> Stream.run()
 ```
 
-## Interactive Dashboard Selector
-
-```elixir
-dashboard_options = [
-  {"Jaeger - Distributed Tracing", "http://localhost:16686"},
-  {"Grafana - Unified Observability", "http://host.docker.internal:3000"},
-  {"Prometheus - Metrics", "http://host.docker.internal:9090"},
-  {"Swagger - API Docs", "http://host.docker.internal:8087"},
-  {"MinIO Console - Object Storage", "http://host.docker.internal:9001"}
-]
-
-selected = Kino.Input.select("Select Dashboard:", dashboard_options)
-Kino.render(selected)
-
-iframe_frame = Kino.Frame.new()
-
-selected
-|> Kino.listen(fn %{value: url} ->
-  iframe_html = """
-  <iframe
-    src="#{url}"
-    width="100%"
-    height="800px"
-    style="border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-  </iframe>
-  """
-
-  Kino.Frame.render(iframe_frame, Kino.HTML.new(iframe_html))
-end)
-
-iframe_frame
-```
-
-```elixir
-Req.get!("http://host.docker.internal:8087").body
-```
-
-## Remote Process Inspector
+## Remote Service Inspector
 
 ```elixir
 # Select a node to inspect

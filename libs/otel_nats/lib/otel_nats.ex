@@ -76,6 +76,6 @@ defmodule OtelNats do
   defp http_to_nats_header(other), do: other
 
   # Convert NATS tuple format to HTTP header format
-  defp nats_to_http_header({key, value}), do: [key, ": ", value, "\r\n"]
-  defp nats_to_http_header(other), do: other
+  # defp nats_to_http_header({key, value}), do: [key, ": ", value, "\r\n"]
+  # defp nats_to_http_header(other), do: other
 end

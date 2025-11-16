@@ -16,22 +16,34 @@ defmodule UserSvc.NatsConsumer do
     headers = Map.get(message, :headers, [])
     _token = OtelNats.extract_and_attach(headers)
 
+    %Mcsv.V2.UserRequest{} =
+      req =
+      Mcsv.V2.UserRequest.decode(body)
+
     Tracer.with_span "UserSvc.NatsConsumer.email.create" do
       Logger.info("[NatsConsumer] Received message on email.create")
 
       # Inject trace context into outgoing message
       trace_headers = OtelNats.inject()
-      :ok = Gnat.pub(:gnat, "email.send", body, headers: trace_headers)
+
+      case req.type do
+        :EMAIL_TYPE_WELCOME ->
+          :ok = Gnat.pub(:gnat, "email.welcome", body, headers: trace_headers)
+
+        :EMAIL_TYPE_NOTIFICATION ->
+          :ok = Gnat.pub(:gnat, "email.notification", body, headers: trace_headers)
+
+        _ ->
+          Logger.error("[NatsConsumer] Unknown email type: #{inspect(req.type)}")
+          OpenTelemetry.Tracer.set_status(:error, "Unknown email type")
+          {:error, :unknown_email_type}
+      end
     end
   end
 
   def handle_message(%{topic: "user.email.delivered"} = message) do
-    Logger.info("[NatsConsumer] Raw message: #{inspect(message)}")
-
     body = Map.get(message, :body)
     headers = Map.get(message, :headers, [])
-
-    Logger.info("[NatsConsumer] Headers: #{inspect(headers)}")
 
     # Extract trace context from incoming NATS message and attach it
     _token = OtelNats.extract_and_attach(headers)

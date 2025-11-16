@@ -1,0 +1,39 @@
+http://localhost:8080 {
+    reverse_proxy livebook:8090 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        
+        transport http {
+            versions 1.1
+        }	
+    }
+		header {
+					-X-Frame-Options
+					Content-Security-Policy "frame-ancestors *"
+		}
+}
+
+
+# --- Jaeger ---
+http://jaeger.localhost:8080 {
+		reverse_proxy jaeger:16686
+}
+
+# --- Grafana ---
+http://grafana.localhost:8080 {
+		reverse_proxy grafana:3000
+}
+
+# --- Prometheus ---
+http://prometheus.localhost:8080 {
+		reverse_proxy prometheus:9090
+}
+
+# --- MinIO ---
+http://minio.localhost:8080 {
+		reverse_proxy minio:9001
+}
+    
+

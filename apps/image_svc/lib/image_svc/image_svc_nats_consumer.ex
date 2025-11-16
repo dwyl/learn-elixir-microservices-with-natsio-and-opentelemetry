@@ -13,15 +13,18 @@ defmodule ImageSvc.NatsConsumer do
 
       with {:ok, image_binary} <- fetch_image(req.image_url) do
         ctx = OpenTelemetry.Ctx.get_current()
+        # save ctx before spawning new process
 
         info_task =
           Task.async(fn ->
+            # inject trace context into new process
             OpenTelemetry.Ctx.attach(ctx)
             ImageMagick.get_image_info(image_binary)
           end)
 
         conversion_task =
           Task.async(fn ->
+            # inject trace context into new process
             OpenTelemetry.Ctx.attach(ctx)
             perform_conversion(req, image_binary)
           end)

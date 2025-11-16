@@ -7,6 +7,18 @@ import Config
 config :email_svc,
   ecto_repos: []
 
+# Configure JetStream streams for this service
+config :email_svc, :jetstream_streams, [
+  %{
+    name: "EMAILS",
+    subjects: ["email.>"],
+    consumers: [
+      %{name: "welcome_mailer", filter_subject: "email.welcome", deliver_policy: "all"},
+      %{name: "notification_mailer", filter_subject: "email.notification", deliver_policy: "all"}
+    ]
+  }
+]
+
 # Configure Swoosh Mailer (adapter is in runtime.exs)
 config :email_svc, EmailService.Mailer, adapter: Swoosh.Adapters.Local
 

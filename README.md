@@ -28,7 +28,7 @@ You experience the "endpoints hell" (discovery, hardcoded mapping everywhere). O
   - [The Problem](#the-problem)
   - [What This Demo Covers](#what-this-demo-covers)
   - [Prerequisites](#prerequisites)
-  - [JetStream](#jetstream)
+  - [JetStream - persistent messaging](#jetstream---persistent-messaging)
   - [OpenAPI Documentation](#openapi-documentation)
     - [Design-First Workflow](#design-first-workflow)
     - [API Style: Twirp-like RPC](#api-style-twirp-like-rpc)
@@ -146,7 +146,18 @@ docker exec -it msvc-client-svc bin/client_svc remote
 # iex(client_svc@ba41c71bacac)1> ImageClient.convert_png("my-image.png", "me@com")
 ```
 
-## JetStream
+## JetStream - persistent messaging
+
+Benefits:
+✅ At-least-once delivery
+✅ Automatic retries on failure
+✅ Message persistence (survives NATS restart)
+✅ Consumer acknowledgments
+
+Add more streams anytime by adding functions to
+Scale consumers - add more pull consumers for parallelism
+Guaranteed delivery - messages persist until acknowledged
+Distributed tracing - full visibility across services
 
 ```elixir
 

@@ -23,7 +23,8 @@ defmodule ImageService.Application do
       ImageSvcWeb.Telemetry,
       {Cluster.Supervisor, [topologies(), [name: ImageService.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
-      {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
+      # {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
+      {Task, &setup_jetstream/0},
       ImageSvcWeb.Endpoint
     ]
 
@@ -41,15 +42,21 @@ defmodule ImageService.Application do
     }
   end
 
-  defp consumer_supervisor_settings do
-    %{
-      connection_name: :gnat,
-      consuming_function: {ImageSvc.NatsConsumer, :handle_message},
-      subscription_topics: [
-        %{topic: "image.convert.to_pdf"}
-      ]
-    }
+  defp setup_jetstream do
+    # Wait for Gnat connection to be established
+    # Process.sleep(1000)
+    JetstreamSetup.setup_from_config(:image_svc, :gnat)
   end
+
+  # defp consumer_supervisor_settings do
+  #   %{
+  #     connection_name: :gnat,
+  #     consuming_function: {ImageSvc.NatsConsumer, :handle_message},
+  #     subscription_topics: [
+  #       %{topic: "image.convert.to_pdf"}
+  #     ]
+  #   }
+  # end
 
   defp nats_host do
     System.get_env("NATS_HOST", "localhost")

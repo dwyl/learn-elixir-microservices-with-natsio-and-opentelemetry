@@ -7,6 +7,21 @@ x-common-depends: &common_depends
     - promtail
 
 services:
+
+  caddy:
+    image: caddy
+    container_name: msvc-caddy
+    ports:
+      - "8080:8080" # Caddy will serve http://localhost:8080
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      # for certificates and config persistence
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - msvc
+    restart: unless-stopped
+
   nats-server:
     image: nats:latest
     container_name: msvc-nats-server
@@ -30,6 +45,7 @@ services:
       - 8090:8090
       - 8091:8091
     environment:
+      - LIVEBOOK_BASE_PATH=/
       - LIVEBOOK_PORT=8090
       - LIVEBOOK_IFRAME_PORT=8091
       - LIVEBOOK_DISTRIBUTION=name
@@ -449,6 +465,10 @@ volumes:
   prometheus-data:
     driver: local
   nats_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local
 
 networks:
