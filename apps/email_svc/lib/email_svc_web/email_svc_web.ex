@@ -1,15 +1,5 @@
 defmodule EmailServiceWeb do
-  @moduledoc """
-  The entrypoint for defining your web interface (controllers, routers).
-
-  This can be used in your application as:
-
-      use UserSvcWeb, :controller
-      use UserSvcWeb, :router
-
-  The definitions below will be executed for every controller,
-  so keep them short and clean.
-  """
+  @moduledoc false
 
   def router do
     quote do

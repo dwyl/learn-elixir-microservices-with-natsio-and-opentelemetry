@@ -1,29 +1,10 @@
 defmodule ImageSvcWeb do
-  @moduledoc """
-  The entrypoint for defining your web interface, such
-  as controllers, components, channels, and so on.
-
-  This can be used in your application as:
-
-      use ImageSvcWeb, :controller
-      use ImageSvcWeb, :html
-
-  The definitions below will be executed for every controller,
-  component, etc, so keep them short and clean, focused
-  on imports, uses and aliases.
-
-  Do NOT define functions inside the quoted expressions
-  below. Instead, define additional modules and import
-  those modules here.
-  """
-
-  # def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  @moduledoc false
 
   def router do
     quote do
       use Phoenix.Router, helpers: false
 
-      # Import common connection and controller functions to use in pipelines
       import Plug.Conn
       import Phoenix.Controller
     end
@@ -34,6 +15,7 @@ defmodule ImageSvcWeb do
       use Phoenix.Controller, formats: [:json]
 
       import Plug.Conn
+      # OpenTelemetry helpers (for manual spans if needed)
       require OpenTelemetry.Tracer, as: Tracer
     end
   end
