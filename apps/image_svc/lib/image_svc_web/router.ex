@@ -1,5 +1,5 @@
-defmodule ImageSvcWeb.Router do
-  use ImageSvcWeb, :router
+defmodule ImageServiceWeb.Router do
+  use ImageServiceWeb, :router
   @moduledoc false
 
   # Health check endpoint (GET/HEAD for load balancers)

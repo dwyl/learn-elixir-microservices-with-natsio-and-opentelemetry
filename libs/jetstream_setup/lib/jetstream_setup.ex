@@ -134,7 +134,7 @@ defmodule JetstreamSetup do
             :ok
 
           _ ->
-            Logger.info("[JetStream] Stream '#{name}' created successfully")
+            Logger.info("[JetStream] Stream maybe '#{name}' created successfully")
             :ok
         end
 

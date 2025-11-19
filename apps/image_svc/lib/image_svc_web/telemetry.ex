@@ -1,4 +1,4 @@
-defmodule ImageSvcWeb.Telemetry do
+defmodule ImageServiceWeb.Telemetry do
   @moduledoc """
   OpenTelemetry auto-instrumentation for Phoenix and Bandit.
 

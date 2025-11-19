@@ -12,7 +12,7 @@ services:
     image: caddy
     container_name: msvc-caddy
     ports:
-      - "8080:8080" # Caddy will serve http://localhost:8080
+      - "8080:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       # for certificates and config persistence

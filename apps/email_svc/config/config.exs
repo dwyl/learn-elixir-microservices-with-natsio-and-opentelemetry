@@ -8,13 +8,16 @@ config :email_svc,
   ecto_repos: []
 
 # Configure JetStream streams for this service
+# Use "all" in dev to process all messages, "new" in prod to only process new messages
+deliver_policy = if Mix.env() == :prod, do: "new", else: "all"
+
 config :email_svc, :jetstream_streams, [
   %{
     name: "EMAILS",
     subjects: ["email.>"],
     consumers: [
-      %{name: "welcome_mailer", filter_subject: "email.welcome", deliver_policy: "all"},
-      %{name: "notification_mailer", filter_subject: "email.notification", deliver_policy: "all"}
+      %{name: "welcome_mailer", filter_subject: "email.welcome", deliver_policy: deliver_policy},
+      %{name: "notification_mailer", filter_subject: "email.notification", deliver_policy: deliver_policy}
     ]
   }
 ]

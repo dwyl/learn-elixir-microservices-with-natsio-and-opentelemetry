@@ -1,4 +1,4 @@
-defmodule ClientSvc.MixProject do
+defmodule ClientService.MixProject do
   use Mix.Project
 
   def project do
@@ -62,6 +62,7 @@ defmodule ClientSvc.MixProject do
       {:bandit, "~> 1.8"},
       {:plug, "~> 1.18"},
       {:req, "~> 0.5.15"},
+      {:ex_image_info, "~> 1.0"},
       # serializer
       {:jason, "~> 1.4"},
       {:protos, path: "../../libs/protos"},

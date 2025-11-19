@@ -1,9 +1,9 @@
-defmodule UserSvcWeb.Telemetry do
+defmodule UserServiceWeb.Telemetry do
   @moduledoc """
   OpenTelemetry and Telemetry setup for user_svc.
 
   This module:
-  - Attaches OpenTelemetry handlers for Phoenix, Bandit, and Req
+  - Attaches OpenTelemetry handlers for Phoenix, Bandit, and Req for automatic span creation
   - Defines Prometheus metrics (via TelemetryMetricsPrometheus)
   - Starts telemetry_poller for VM metrics
   """
@@ -11,9 +11,6 @@ defmodule UserSvcWeb.Telemetry do
   use Supervisor
   import Telemetry.Metrics
   require Logger
-
-  # Semantic conventions for opt-in attributes
-  # alias OpenTelemetry.SemConv
 
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
@@ -28,28 +25,18 @@ defmodule UserSvcWeb.Telemetry do
       {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
     ]
 
-    # ✅ Attach OpenTelemetry handlers for automatic span creation
     :ok = setup_opentelemetry_handlers()
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  ## OpenTelemetry Setup
-  ## ===================
+  ## OpenTelemetry Setup -------------------------------------------
 
   defp setup_opentelemetry_handlers do
-    # 1. Phoenix automatic instrumentation
     # Creates spans for every HTTP request with route, method, status
     :ok = OpentelemetryPhoenix.setup(adapter: :bandit)
 
-    # 2. Bandit HTTP server instrumentation (opt-in semantic conventions)
-    # Adds HTTP request/response body sizes and other opt-in attributes
-    opt_in_attrs = [
-      # SemConv.HTTPAttributes.http_request_body_size(),
-      # SemConv.HTTPAttributes.http_response_body_size()
-    ]
-
-    :ok = OpentelemetryBandit.setup(opt_in_attrs: opt_in_attrs)
+    :ok = OpentelemetryBandit.setup(opt_in_attrs: [])
 
     Logger.info("[OpenTelemetry] Handlers attached: Phoenix, Bandit")
     :ok

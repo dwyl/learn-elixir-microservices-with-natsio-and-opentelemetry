@@ -11,7 +11,6 @@ defmodule EmailService.Application do
 
   1. EMAILS Stream: This stream will handle all email-related messages, including welcome emails and notifications.
   2. NOTIFICATIONS Stream: This stream will specifically manage notification messages.
-
   """
 
   require Logger
@@ -26,10 +25,14 @@ defmodule EmailService.Application do
       EmailServiceWeb.Telemetry,
       {Cluster.Supervisor, [topologies(), [name: EmailService.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
-      # {Gnat.ConsumerSupervisor, consumer_supervisor_settings()},
-      {Task, &setup_jetstream/0},
-      PullConsumer.Welcome,
-      PullConsumer.Notification,
+      # blocking jetstream setup task
+      %{
+        id: JetstreamSetup,
+        start: {Task, :start_link, [fn -> setup_jetstream() end]},
+        restart: :transient
+      },
+      Broadway.Emails.Welcome,
+      Broadway.Emails.Notification,
       EmailServiceWeb.Endpoint
     ]
 

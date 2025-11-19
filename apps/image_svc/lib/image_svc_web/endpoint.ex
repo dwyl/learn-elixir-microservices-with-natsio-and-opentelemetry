@@ -1,4 +1,4 @@
-defmodule ImageSvcWeb.Endpoint do
+defmodule ImageServiceWeb.Endpoint do
   @moduledoc """
   The Promex.Plug is added before Plug.Telemetry to avoid self-instrumentation.
 
@@ -9,7 +9,7 @@ defmodule ImageSvcWeb.Endpoint do
 
   use Phoenix.Endpoint, otp_app: :image_svc
 
-  plug(PromEx.Plug, prom_ex_module: ImageSvc.PromEx)
+  plug(PromEx.Plug, prom_ex_module: ImageService.PromEx)
 
   # Request ID for distributed tracing correlation
   plug(Plug.RequestId)
@@ -25,5 +25,5 @@ defmodule ImageSvcWeb.Endpoint do
   # HEAD request support (OPTIONS/HEAD for health checks)
   plug(Plug.Head)
 
-  plug(ImageSvcWeb.Router)
+  plug(ImageServiceWeb.Router)
 end

@@ -1,4 +1,4 @@
-defmodule UserSvcWeb do
+defmodule UserServiceWeb do
   @moduledoc """
   The entrypoint for defining your web interface (controllers, routers).
 

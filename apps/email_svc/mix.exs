@@ -46,7 +46,6 @@ defmodule EmailSvc.MixProject do
     [
       extra_applications: [
         :logger,
-        # :inets,
         :os_mon,
         :tls_certificate_check
       ],
@@ -59,6 +58,7 @@ defmodule EmailSvc.MixProject do
     [
       {:libcluster, "~> 3.5"},
       {:phoenix, "~> 1.8.1"},
+      {:broadway, "~> 1.2"},
       # {:req, "~> 0.5.15"},
       {:bandit, "~> 1.8"},
       {:gnat, "~> 1.11.1"},

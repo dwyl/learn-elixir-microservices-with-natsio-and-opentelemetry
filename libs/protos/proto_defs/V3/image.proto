@@ -2,28 +2,37 @@ syntax = "proto3";
 
 package mcsv.v3;
 
-// Go package path (required for OpenAPI generation)
-option go_package = "github.com/msvc/protos";
+
+// S3/MinIO reference for streaming large files
+message S3Reference {
+  string bucket = 1;
+  string key = 2;
+  string presigned_url = 3;  // Optional: presigned GET URL for direct access
+}
 
 // Request to convert an image (PNG/JPEG) to PDF
 message ImageConversionRequest {
   string user_id = 1;
   string user_email = 2;
 
-  // EITHER image_url OR image_data (prefer image_url for microservices)
-  string image_url = 3;         // URL to fetch image from (e.g., http://user_svc/ImageLoader/job_123)
+  // Source of the image - choose ONE:
+  oneof source {
+    bytes image_data = 10;      // Inline binary (< 10MB recommended)
+    string image_url = 3 [deprecated = true];  // DEPRECATED: Use s3_ref instead
+    S3Reference s3_ref = 11;    // S3 reference for streaming (recommended for large files)
+  }
+
   // Input format (png, jpeg, jpg)
   string input_format = 4;
-  
+
   // PDF conversion options
   string pdf_quality = 5;       // "low", "medium", "high", "lossless"
   bool strip_metadata = 6;      // Remove EXIF data
   int32 max_width = 7;          // Resize if larger (0 = no resize)
   int32 max_height = 8;         // Resize if larger (0 = no resize)
-  
+
   // Storage tracking - used to clean up stored images
   string job_id = 9;       // Unique job ID for tracking
-  bytes image_data = 10;
 }
 
 // Response after image conversion

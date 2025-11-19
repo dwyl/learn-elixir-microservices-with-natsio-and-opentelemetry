@@ -1,776 +1,190 @@
-# Discover Microservices with Elixir with Observability
+# Microservices with Elixir, NATS JetStream, and Observability
 
-This a toy **Phoenix-Elixir-based microservices** app demonstrating PNG-to-PDF image conversion with email notifications.
+A **Phoenix/Elixir microservices** proof-of-concept addressing three core challenges:
 
-It is complete enough to understand the concepts used but not production code.
+1. **Service Communication**: Event-driven architecture with NATS JetStream and Broadway
+2. **Debugging Distributed Systems**: Full observability with OpenTelemetry (traces, logs, metrics)
+3. **Failure Handling**: Message durability, automatic retries, and load balancing via JetStream
 
-It works on Docker as an API with a LiveBook UI to reach the services which have been distributed.
+We demonstrate both CPU-intensive (PNG-to-PDF conversion with S3 streaming) and I/O-bound (email sending) workloads.
 
-In practice, you can reach any Elixir containers/services via _remote_  sessions and the observability services are reachable in the browser (port mapping _SERVICES.md_).
+**What we DON'T cover**: Data consistency (sagas, event sourcing), deployment orchestration beyond `docker-compose`, or service discovery (service mesh).
 
-However, we added a LiveBook with BEAM distribution as this facilitates a lot interaction with the microservices (_DOCKER_CLUSTERING.md_).
+**Key Technologies**: NATS JetStream, Broadway, MinIO (local S3), Protobuf, OpenTelemetry, Prometheus, Loki, Grafana, Jaeger
 
-You experience the "endpoints hell" (discovery, hardcoded mapping everywhere). OpenAPI documentation and Observability are first-class citizens in such projects and are key to help.
+---
 
-- [Livebook launcher](https://github.com/ndrean/micro_ex/blob/main/apps/notebooks/monitoring_dashboard.livemd): <http://localhost:8090>
-  
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/Livebook.png" alt="livebook">
+## About NATS.io
 
-- [Services guide](https://github.com/ndrean/micro_ex/blob/main/SERVICES.md)
-- [Docker clustering guide](https://github.com/ndrean/micro_ex/blob/main/DOCKER_CLUSTERING.md)
+<img src="priv/natsio.png" alt="natsio">
 
-> In a separate _nats_ branch, we will migrate to use [NATS.IO](https://docs.nats.io/) via the [gnat package](https://github.com/nats-io/nats.ex) to address this endpoint management with a different paradigm (event driven pattern) and rethink the architecture while still using protobuf schemas. NATS is a popular choice for communication layer between services running in Kubernetes.
+NATS is a lightweight messaging platform providing:
+
+- **Pub/Sub messaging** between services
+- **Load-balanced queues** across multiple instances of a service
+- **Message replay** on failure or cache rebuilding
+
+**Elixir libraries**: [gnat](https://hexdocs.pm/gnat/readme.html) (core NATS), [jetstream](https://hexdocs.pm/jetstream/overview.html) (persistence layer)
+
+**Can JetStream replace Oban?**:
+
+**Short answer**: No, they solve different problems. Use both.
+
+**JetStream ⭐️**:
+
+- **Service-to-service messaging**: When service A needs to tell service B something happened
+- **Fire-and-forget tasks**: Send an email, resize an image, process a webhook
+- **High-throughput workloads**: Processing thousands of events per second across multiple servers
+- **Event replay**: Need to rebuild a cache? Replay all past events
+
+**Oban ⭐️**:
+
+- **Business-critical jobs**: Billing, payments, subscription renewals
+- **Scheduled/recurring jobs**: "Send invoice on the 1st of each month"
+- **Jobs that need retries with complex rules**: "Retry 3 times, then notify admin"
+- **Jobs that must run exactly once**: Database-backed uniqueness prevents duplicates
+
+**Why not JetStream for critical jobs?**
+
+JetStream lacks:
+
+- **Database-backed guarantees**: Postgres transactions, unique constraints, ACID compliance
+- **Advanced job management**: Dashboard, job status tracking, scheduled/cron jobs
+- **Complex retry policies**: Exponential backoff, max attempts per job, custom retry logic
+- **Idempotency**: Deduplication based on unique job parameters (Oban does this via DB constraints)
+- **Auditability**: Full job history with timestamps and state transitions
+
+**What JetStream does better than Oban**:
+
+- **Free horizontal scaling**: Add more servers, get automatic load balancing (no Postgres bottleneck)
+- **Message replay**: Your cache service crashed? Replay all past events to rebuild it
+- **High throughput**: Handle 10,000+ messages/sec across multiple servers easily
+
+**Example: Message Replay for Cache Rehydration**:
+
+```elixir
+# Create a consumer that replays ALL messages from the beginning
+%{
+  stream_name: "IMAGES",
+  durable_name: "cache_rehydrator",
+  deliver_policy: :all,          # Start from the first message
+  replay_policy: :instant,       # Deliver as fast as possible (not :original timing)
+  ack_policy: :explicit
+}
+```
+
+**Real-world decision guide**:
+
+| What you're building                | Use this  | Why                                                               |
+| ----------------------------------- | --------- | ----------------------------------------------------------------- |
+| Send welcome email after signup     | JetStream | If it fails, retry is fine. Don't need exactly-once               |
+| Charge customer's credit card       | Oban      | Must run exactly once. Need audit trail                           |
+| Resize uploaded images              | JetStream | High volume, can process across many servers                      |
+| Send monthly invoice (1st of month) | Oban      | Needs cron scheduling                                             |
+| Process webhook from Stripe         | JetStream | Fast, async, can replay if service was down                       |
+| Upgrade user to paid plan           | Oban      | Database transaction required (update user + create subscription) |
+| Rebuild analytics cache             | JetStream | Replay all past events to recalculate everything                  |
+
+---
+
+## Running the Demo
+
+This demo runs on **Docker** with **Livebook** for interactive exploration.
+
+**Features**:
+
+- All services are Erlang-distributed (you can use `:erpc.call/4` from Livebook to reach any service)
+- Observability UIs accessible in browser (see [SERVICES.md](SERVICES.md) for port mappings)
+- Livebook provides a code runner and custom UI to access observability dashboards
+
+> [!NOTE]
+> **Security**: This demo uses unencrypted TCP without authentication (JWT) and runs behind Caddy reverse proxy on port 8080. In production, enable TLS and NATS authentication.
+
+<img src="priv/Livebook.png" alt="livebook">
+---
 
 ## Table of Contents
 
-- [Discover Microservices with Elixir with Observability](#discover-microservices-with-elixir-with-observability)
+- [Microservices with Elixir, NATS JetStream, and Observability](#microservices-with-elixir-nats-jetstream-and-observability)
+  - [About NATS.io](#about-natsio)
+  - [Running the Demo](#running-the-demo)
   - [Table of Contents](#table-of-contents)
+  - [Architecture Overview](#architecture-overview)
   - [The Problem](#the-problem)
   - [What This Demo Covers](#what-this-demo-covers)
+    - [Architecture Patterns](#architecture-patterns)
+    - [Observability (OpenTelemetry)](#observability-opentelemetry)
+    - [Technologies](#technologies)
   - [Prerequisites](#prerequisites)
-  - [JetStream - persistent messaging](#jetstream---persistent-messaging)
-  - [OpenAPI Documentation](#openapi-documentation)
-    - [Design-First Workflow](#design-first-workflow)
-    - [API Style: Twirp-like RPC](#api-style-twirp-like-rpc)
-    - [Note on Runtime Validation](#note-on-runtime-validation)
-  - [Protobuf](#protobuf)
-    - [Protobuf in Practice: Encode/Decode Pattern](#protobuf-in-practice-encodedecode-pattern)
-    - [Transport](#transport)
-    - [Centralized Proto Compilation](#centralized-proto-compilation)
-  - [OpenTelemetry](#opentelemetry)
-    - [Setup](#setup)
-    - [Propagation traces with Req](#propagation-traces-with-req)
-    - [Start a trace](#start-a-trace)
+    - [System Requirements](#system-requirements)
+  - [Quick Start](#quick-start)
   - [Services Overview](#services-overview)
-    - [Client service](#client-service)
-    - [User service](#user-service)
-    - [Email service](#email-service)
-    - [Image service](#image-service)
-    - [Workflow example: Email Notification](#workflow-example-email-notification)
-    - [Workflow Example: PNG to PDF Conversion (Pull Model)](#workflow-example-png-to-pdf-conversion-pull-model)
-  - [Observability](#observability)
-    - [Telemetry vs OpenTelemetry: Two Different Things](#telemetry-vs-opentelemetry-two-different-things)
-      - [Erlang/Elixir `:telemetry` (Local Event Bus)](#erlangelixir-telemetry-local-event-bus)
-      - [OpenTelemetry (Distributed Observability Standard)](#opentelemetry-distributed-observability-standard)
-      - [How They Work Together in This Project](#how-they-work-together-in-this-project)
-    - [Stack Overview](#stack-overview)
-    - [Trace pipeline](#trace-pipeline)
-    - [Logs pipeline](#logs-pipeline)
-      - [How Logs Are Produced and Collected](#how-logs-are-produced-and-collected)
-    - [Metrics pipeline](#metrics-pipeline)
-      - [How Metrics Are Produced and Collected](#how-metrics-are-produced-and-collected)
-    - [Key Differences from Logs \& Traces](#key-differences-from-logs--traces)
-  - [PromEx Configuration and Dashboards](#promex-configuration-and-dashboards)
-    - [Datasource Configuration](#datasource-configuration)
-    - [Generate and Export Dashboards](#generate-and-export-dashboards)
-  - [COCOMO Complexity Analysis of this project](#cocomo-complexity-analysis-of-this-project)
+    - [Client Service (port 8085)](#client-service-port-8085)
+    - [User Service (port 8081)](#user-service-port-8081)
+    - [Email Service (port 8083)](#email-service-port-8083)
+    - [Image Service (port 8084)](#image-service-port-8084)
+  - [NATS JetStream + Broadway](#nats-jetstream--broadway)
+    - [Why JetStream?](#why-jetstream)
+    - [Setting Up Streams](#setting-up-streams)
+    - [Broadway Pipelines](#broadway-pipelines)
+    - [Load Balancing with Multiple Service Instances](#load-balancing-with-multiple-service-instances)
+      - [How It Works](#how-it-works)
+      - [Client Pull Model (Broadway with OffBroadway.Jetstream.Producer)](#client-pull-model-broadway-with-offbroadwayjetstreamproducer)
+      - [Server Push Model (Gnat.ConsumerSupervisor with Queue Groups)](#server-push-model-gnatconsumersupervisor-with-queue-groups)
+      - [Demo: Running 2 Image Service Instances](#demo-running-2-image-service-instances)
+      - [Important Configuration Notes](#important-configuration-notes)
+      - [When to Use Which Model?](#when-to-use-which-model)
+    - [Pub/Sub Patterns](#pubsub-patterns)
+  - [Message Flow Examples](#message-flow-examples)
+    - [Email Notification Flow](#email-notification-flow)
+    - [Image Conversion Flow](#image-conversion-flow)
+  - [Storage Management](#storage-management)
+    - [MinIO/S3 Integration](#minios3-integration)
+    - [Automatic Cleanup](#automatic-cleanup)
+  - [Protobuf Contracts](#protobuf-contracts)
+    - [Centralized Proto Compilation](#centralized-proto-compilation)
+    - [Example Proto Definition](#example-proto-definition)
+    - [Encode/Decode Pattern](#encodedecode-pattern)
+  - [OpenTelemetry Distributed Tracing](#opentelemetry-distributed-tracing)
+    - [Setup](#setup)
+    - [Trace Context Propagation](#trace-context-propagation)
+    - [Span Links for Async Flows](#span-links-for-async-flows)
+  - [Observability Stack](#observability-stack)
+    - [Traces (Jaeger)](#traces-jaeger)
+    - [Logs (Loki + Promtail)](#logs-loki--promtail)
+    - [Metrics (Prometheus + PromEx)](#metrics-prometheus--promex)
+    - [Dashboards (Grafana)](#dashboards-grafana)
   - [Production Considerations](#production-considerations)
-  - [Enhancement?](#enhancement)
-  - [Tests](#tests)
-    - [Manual Testing Examples](#manual-testing-examples)
+    - [Scaling Strategies](#scaling-strategies)
+    - [Observability in Production](#observability-in-production)
+    - [Security](#security)
+    - [Reliability](#reliability)
+  - [Testing Strategy](#testing-strategy)
+    - [Test Pyramid](#test-pyramid)
+    - [Manual Testing](#manual-testing)
   - [Sources](#sources)
-
-## The Problem
-
-**Goal**: We want to build a system that delivers high-volume PNG-to-PDF conversion with email notifications.
-
-**Challenge**: Image conversion is CPU-intensive and can become a bottleneck. How do you know where the bottleneck is? How do you scale efficiently?
-
-**Answer**: use a microservice architecture where **Observability is the key**.
-
-Before you can optimize or scale, you need to see:
-
-- Which step/service is slow? (traces)
-- How much CPU/memory is consumed? (metrics)
-- What errors occur and when? (logs)
-
-This demo shows how to instrument a microservices system with OpenTelemetry to gain these insights, then discusses practical scaling strategies based on what you observe.
-
-## What This Demo Covers
-
-The main interest of this demo is to display a broad range of tools and orchestrate the observability tools with OpenTelemetry in `Elixir`.
-
-It gives an introduction to different techniques:
-
-- an [OpenAPI Design first](https://learn.openapis.org/best-practices.html) approach,
-- protocol buffers contracts between services over HTTP/1.1,
-- instrumentation with `OpenTelemetry` and PromEx to collect the three observables, logs, traces and metrics.
-
-We use quite a few technologies:
-
-- Protocol buffers (the Elixir `:protobuf` library) for inter-service communication serialization with a compiled package-like installation
-- background job processing (`Oban`) backed with the database `SQLite`
-- an email library (`Swoosh`)
-- a process runner `ExCmd` to stream `ImageMagick`
-- S3 compatible local-cloud storage `MinIO`
-- `OpenTelemetry` with `Jaeger` and `Tempo` for traces (the latter uses `MinIO` for backing storage)
-- `Promtail` with `Loki` linked to `MinIO` for logs
-- `Prometheus` for metrics
-- `Grafana` for global dashboards and `PromEx` to setup `Grafana` dashboards.
-
-## Prerequisites
-
-This project uses **containers** heavily.
-
-Ensure you have the following installed on your system:
-
-- Protocol Buffers Compiler (`protoc`) - [Installation guide](https://grpc.io/docs/protoc-installation/)
-- `ImageMagick` and `Ghostscript` for PNG, JPEG -> PDF conversion
-
-The **Docker setup**:
-
-- You can setup the `watch` in _docker-compose.yml_ to trigger rebuilds on code change:
-
-```yml
-develop:
-      watch:
-        - action: rebuild
-          path: ./apps/client_svc/lib
-        - action: rebuild
-          path: ./apps/client_svc/mix.exs
-```
-
-and run the _watch_ mode:
-
-```sh
-docker compose up --watch
-```
-
-You can execute Elixir commands on the _client_service_ container:
-
-```sh
-docker exec -it msvc-client-svc bin/client_svc remote
-
-# Interactive Elixir (1.19.2) - press Ctrl+C to exit (type h() ENTER for help)
-
-# iex(client_svc@ba41c71bacac)1> ImageClient.convert_png("my-image.png", "me@com")
-```
-
-## JetStream - persistent messaging
-
-Benefits:
-✅ At-least-once delivery
-✅ Automatic retries on failure
-✅ Message persistence (survives NATS restart)
-✅ Consumer acknowledgments
-
-Add more streams anytime by adding functions to
-Scale consumers - add more pull consumers for parallelism
-Guaranteed delivery - messages persist until acknowledged
-Distributed tracing - full visibility across services
-
-- Debug Jetstream
-
-```elixir
-{:ok, %{body: body}} = Gnat.request(:gnat, "$JS.API.STREAM.INFO.IMAGES", "", receive_timeout: 2000) 
-Jason.decode!(body) |> Map.get("state")
-```
-
-- Clean/Delete queue:
-
-```elixir
-{:ok, _} = Gnat.request(:gnat, "$JS.API.STREAM.PURGE.IMAGES", Jason.encode!(%{}), receive_timeout: 2000)
-```
-
-
-```elixir
-
-Publishing with Idempotency
-defp publish_email_request(user_request) do
-  binary = Mcsv.V2.EmailRequest.encode(user_request)
-  
-  # Generate idempotency key
-  msg_id = generate_message_id(user_request)
-  
-  Jetstream.publish(:gnat, "email.send", binary,
-    headers: [
-      {"Nats-Msg-Id", msg_id},  # Deduplication
-      {"trace-id", get_trace_id()}  # Tracing
-    ]
-  )
-end
-
-defp generate_message_id(user_request) do
-  # Deterministic ID based on user + intent
-  :crypto.hash(:sha256, "#{user_request.user_id}-#{user_request.email}-email")
-  |> Base.encode16(case: :lower)
-end
-```
-
-## OpenAPI Documentation
-
-This project uses OpenAPI primarily for **design and documentation** (no runtime validation, see further).
-
-### Design-First Workflow
-
-When you receive a ticket to implement an API, **start by defining the OpenAPI specification**. This follows the [API-design-first](https://learn.openapis.org/best-practices.html#use-a-design-first-approach) approach, which is considered best practice for building maintainable APIs.
-
-**The workflow:**
-
-```text
-OpenAPI Design → Protobuf Implementation → Code
-```
-
-1. **Design Phase (OpenAPI)**: Define the HTTP API contract
-   - **Endpoints**: Specify paths, HTTP methods, and parameters
-   - **Schemas**: Define request/response body structures with validation rules
-   - **Documentation**: Add descriptions, examples, and error responses
-
-2. **Implementation Phase**: Translate the design into code
-   - **Protobuf contracts**: Implement the schemas as `.proto` messages for type-safe serialization
-   - **Endpoint handlers**: Build controllers that match the OpenAPI paths
-   - **Validation**: Ensure implementation matches the spec
-
-**Why this approach works:**
-
-- **OpenAPI** is ideal for design: human-readable, stakeholder-friendly, HTTP-native (status codes, headers, content types)
-- **Protobuf** is ideal for implementation: compile-time type safety, efficient binary serialization, language-agnostic
-- Both represent the **same data structures** in different formats (JSON Schema vs binary wire format)
-
-### API Style: Twirp-like RPC
-
-> Routes follow a `Twirp`-like RPC DSL with the format `/service_name/method_name` instead of traditional REST (`/resource`).
-
-This RPC-style simplifies observability (no dynamic path segments) and pairs naturally with protobuf's service/method semantics.
-
-**Example** ([email_svc.yaml](openapi/email_svc.yaml)):
-
-The OpenAPI schema defines the contract:
-
-```yaml
-paths:
-  /email_svc/send_email/v1:
-    post:
-      requestBody:
-        content:
-          application/protobuf:
-            schema:
-              $ref: '#/components/schemas/EmailRequest'
-
-components:
-  schemas:
-    EmailRequest:
-      properties:
-        user_id: string
-        user_name: string
-        user_email: string (format: email)
-        email_type: string (enum: [welcome, notification])
-```
-
-Which is then implemented as a protobuf contract ([libs/protos/proto_defs/V1/email.proto](libs/protos/proto_defs/V1/email.proto)):
-
-```proto
-message EmailRequest {
-  string user_id = 1;
-  string user_name = 2;
-  string user_email = 3;
-  string email_type = 4;
-  map<string, string> variables = 5;  // Additional fields for implementation
-}
-```
-
-### Note on Runtime Validation
-
-There is **no runtime validation against the OpenAPI schemas** in this project.
-
-However, **protobuf provides its own runtime validation** - it enforces type safety when encoding/decoding messages. Schema violations are caught during development: if you try to decode a malformed binary or encode invalid data, protobuf will raise an error.
-
-**The key difference:** we validate against **protobuf schemas** (`.proto` files), not OpenAPI schemas (`.yaml` files). Intra-service communication therefore does not need this.
-
-**Where validation is needed:** Incoming external requests are typically validated at the **gateway level**. Tools like [Envoy](https://gateway.envoyproxy.io/docs/) are "smart reverse proxies" that can load balance, validate OpenAPI schemas, and provide authentication and rate limiting.
-
-**For contract testing:** Validate implementation against specs with [PactFlow](https://docs.pactflow.io/docs/bi-directional-contract-testing/contracts/oas).
-
-**If you add runtime validation:** Libraries like [`:open_api_spex`](https://hexdocs.pm/open_api_spex/) integrate with Phoenix:
-
-```elixir
-plug OpenApiSpex.Plug.CastAndValidate,
-  json_render_error_v2: true,
-  operation_id: "EmailController.send"
-```
-
-This validates requests but adds ~2-3ms latency per request.
-
-The best introduction is to read [the OpenAPI spec](https://learn.openapis.org/specification/) and explore the examples in the [/openapi](openapi) folder.
-
-A view of an openapi spec YAML file (using the 42crunch extension):
-
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/openapi-vscode.png" alt="openapi">
-
-The manual YAML specs are:
-
-- [client_svc.yaml](https://github.com/ndrean/micro_ex/blob/main/openapi/client_svc.yaml) -- Client entrypoint (port 8085)
-- [user_svc.yaml](https://github.com/ndrean/micro_ex/blob/main/openapi/user_svc.yaml) - User Gateway service (port 8081)
-- [job_svc.yaml](https://github.com/ndrean/micro_ex/blob/main/openapi/job_svc.yaml) - Oban job queue service (port 8082)
-- [email_svc.yaml](https://github.com/ndrean/micro_ex/blob/main/openapi/email_svc.yaml) - Email delivery service (port 8083)
-- [image_svc.yaml](https://github.com/ndrean/micro_ex/blob/main/openapi/image_svc.yaml) - Image processing service (port 8084)
-
-We expose the documentation via a `SwaggerUI` container (port 8087). The container has a bind mount to the _/open_api_ folder.
-
-An example of the generated documentation served by `Swagger` (see below).
-
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/openapi-email-svc.png" alt="openapi-email">
-
-## Protobuf
-
-Now that we've defined the HTTP API contracts with OpenAPI, let's see how the request/response schemas are implemented for efficient serialization between services.
-
-Why `protobuf`?
-
-- **Type Safety**: Defines a contract on the data being exchanged
-- **Efficiency**: Better compression and serialization speed compared to JSON
-- **Simple API**: Mainly 2 methods: `encode` and `decode`
-
-The messages are exchanged in _binary_ form, as opposed to standard plain JSON text, but the decoded messages are in JSON form!
-
-The main reason of using this format is for _type safety_; the proto files clearly _document_ the contract between services.
-It is not for speed (favor `messagepack`) nor for lowering message size (as opposed to JSON text).
-
-**proto versioning**: create unique qualified names
-
-You can namespace the package, like `package mcsv.v1`, and this will give a message versioned identifier like `Mcsv.V1.EmailRequest`.
-
-**Example protobuf schema** (`email.proto`):
-
-```proto
-syntax = "proto3";
-package mcsv.v1;
-
-message EmailRequest {
-  string user_id = 1;
-  string user_name = 2;
-  string user_email = 3;
-  string email_type = 4;  // "welcome", "notification"...
-  map<string, string> variables = 5;  // Template variables
-}
-
-message EmailResponse {
-  bool success = 1;
-  string message = 2;
-  string email_id = 3; 
-  int64 timestamp = 4;
-}
-```
-
-### Protobuf in Practice: Encode/Decode Pattern
-
-We use a **Twirp-like RPC DSL** instead of traditional REST. The routes are named after the service method (e.g., `/email_svc/SendEmail`) rather than REST resources (e.g., `/emails`).
-
-**Example** ([email_svc/lib/router.ex:15](email_svc/lib/router.ex#L15)):
-
-```elixir
-post "/email_svc/send_email" do
-  DeliveryController.send(conn)
-end
-```
-
-**Decode Request** ([email_svc/lib/delivery_controller.ex:10-14](email_svc/lib/delivery_controller.ex#L10-L14)):
-
-```elixir
-def send(conn) do
-  {:ok, binary_body, conn} = Plug.Conn.read_body(conn)
-
-  # Decode protobuf binary → Elixir struct with pattern matching + versioning
-  %Mcsv.V1.EmailRequest{
-    user_name: name,
-    user_email: email,
-    email_type: type
-  } = Mcsv.V1.EmailRequest.decode(binary_body)
-
-  # Process the request...
-end
-```
-
-**Encode Response** ([email_svc/lib/delivery_controller.ex:34-43](email_svc/lib/delivery_controller.ex#L34-L43)):
-
-```elixir
-# Build response struct and encode to binary
-response_binary =
-  %Mcsv.V1.EmailResponse{
-    success: true,
-    message: "Welcome email sent to #{email}"
-  }
-  |> Mcsv.V1.EmailResponse.encode()
-
-# Send binary response with protobuf content type
-conn
-|> put_resp_content_type("application/protobuf")
-|> send_resp(200, response_binary)
-```
-
-**Allow protobuf content through Plug.Parser**: allow protobuf to pass through
-
-```elixir
-plug(Plug.Parsers,
-    parsers: [:json],
-    json_decoder: Jason,
-    # !! Skip parsing protobuf
-    >>> pass: ["application/protobuf", "application/x-protobuf"]
-  )
-```
-
-> TLDR:
-> Setup the `:pass` in Plug.Parser in the _router.ex_
-> **Decode**: `binary_body |> Mcsv.EmailRequest.decode()` → Elixir struct
-> **Encode**: `%Mcsv.EmailResponse{...} |> Mcsv.EmailResponse.encode()` → binary
-> **Content-Type**: Always `application/protobuf` for both request and response
-> **Pattern Matching**: Decode directly into pattern-matched variables for clean code
-> **RPC-Style Routes**: `/service_name/MethodName` (Twirp convention) instead of REST `/resources`
-
-### Transport
-
-When you use protobuf to serialize your messages, you are almost ready to use `gRPC` modulo the "rpc's" implementation.
-
-However, we use **HTTP/1** because `gRPC` brings overhead and even latency when compared to HTTP for small to medium projects (check <https://www.youtube.com/watch?v=uH0SxYdsjv4>).
-
-This means each app runs:
-
-- A webserver: **Bandit** (HTTP server)
-- An HTTP client: **Req** (HTTP client)
-
-Communication pattern:
-
-- HTTP POST with `Content-Type: application/protobuf`
-- Binary protobuf encoding/decoding
-- Synchronous request-response + async job processing
-
-### Centralized Proto Compilation
-
-This project uses a **centralized proto library** (`libs/protos`) that automatically compiles `.proto` definitions and distributes them as a Mix dependency. No manual `protoc` commands or file copying needed.
-
-**Prerequisites**:
-
-- `protoc` compiler installed ([installation guide](https://grpc.io/docs/protoc-installation/))
-- For local development: `mix escript.install hex protobuf` (adds `protoc-gen-elixir` to PATH)
-
-**How it works**:
-
-In the folder _libs/protos_, we have the list of our proto files, `*.proto`.
-We run a task to compile them in place to produce `*.pb.ex` files.
-
-The files will be embeded into the Beam code just like any package, thus available.
-
-```elixir
-# libs/protos/mix.exs
-def project do
-  [
-    compilers: Mix.compilers() ++ [:proto_compiler],
-    proto_compiler: [
-      source_dir: "proto_defs/#{protos_version()}",
-      output_dir: "lib/protos/#{protos_version()}"
-    ]
-  ]
-end
-
- defp protos_version, do: "V2"
-
-defp deps do
-  [
-    {:protobuf, "~> 0.15.0"}
-  ]
-end
-
-def Mix.Tasks.Compile.ProtoComiler do
-  [...]
-  System.cmd("protoc", args)
-  [...]
-end
-```
-
-In the services, declare the "package":
-
-```elixir
-# apps/client_svc/mix.exs
-defp deps do
-  [
-    {:protos, path: "../../libs/protos"},  # Just add dependency
-    {:protobuf, "~> 0.15.0"}
-  ]
-end
-```
-
-**version update**: you need to clean the build to pickup the new version
-
-- You create a new subfolder, say _libs/protos/proto_defs/v10_,
-- You update the version in the MixProject, under _protos_version_
-- You run the following command:
-
-```sh
-mix deps.clean protos --build  && mix deps.get && mix compile --force
-```
-
-**Container implementation** (applies to all service Dockerfiles):
-
-You need to bring in `protobuf-dev`, copy the _libs/proto_ folder, run the install script, define the PATH (as described in the [Elixir protobuf documentation](https://github.com/elixir-protobuf/protobuf#generate-elixir-code))
-
-```dockerfile
-# 1. Install protoc system package
-RUN apk add --no-cache protobuf-dev
-
-# 2. Copy shared protos library
-COPY libs/protos libs/protos/
-
-# 3. Install Mix dependencies (triggers proto compilation)
-RUN mix deps.get --only prod
-
-# 4. Install protoc-gen-elixir plugin and add to PATH
-RUN mix escript.install --force hex protobuf
-ENV PATH="/root/.mix/escripts:${PATH}"
-
-# 5. Compile (protos already compiled as dependency)
-RUN mix compile
-```
-
-**Key points**:
-
-1. **Single source of truth**: The `.proto` files live in `libs/protos/proto_defs/`
-2. **Custom Mix compiler**: Automatically compiles protos during `mix deps.get`
-3. **Path dependency**: Services include `{:protos, path: "../../libs/protos"}` in mix.exs
-4. **versioning**: Compiled `*.pb.ex` files are generated once and reused
-5. Build automation: No manual `protoc` commands
-6. Container-ready: Works in both dev and Docker environments
-
-You can have a higher or more robust level of integration; check the following [blog from Andrea Leopardi](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/) about sharing protobuf across services. The author present a higher level vision of sharing protobuf schemas: produce a hex package and rely on the Hex package and the CI pipeline.
-
-[<img src="https://github.com/ndrean/micro_ex/blob/main/priv/ALeopardi-share-protobuf.png" with="300">](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/)
-
-## OpenTelemetry
-
-Summary: Span Links for Continuous Distributed Traces
-I've successfully implemented span links to make the distributed trace appear "continuous" by visually connecting the async return path back to the original request.
-What Changed:
-1. Enhanced /libs/otel_nats/lib/otel_nats.ex with span linking support:
-inject_with_link() - Injects both trace context AND the current span_id/trace_id as custom headers (x-span-id, x-trace-id)
-extract_link(headers) - Extracts the span_id/trace_id from headers and creates an OpenTelemetry span link
-Helper functions for converting span/trace IDs to/from hex strings
-2. Updated /apps/image_svc/lib/image_svc/broadway_image_processor.ex:
-Changed OtelNats.inject() to OtelNats.inject_with_link() when publishing to user.image.converted
-This captures the Broadway processor's span_id and includes it in the response message
-3. Updated /apps/user_svc/lib/user_svc/nats_consumer.ex:
-user.image.converted handler now extracts the link and creates the span with links: [link]
-Changed to use OtelNats.inject_with_link() when forwarding to client.image.converted
-This creates a visual link from the User service span back to the Image service span
-4. Updated /apps/client_svc/lib/client_svc/nats_consumer.ex:
-client.image.converted handler extracts the link and creates the span with links: [link]
-This creates a visual link from the Client service span back to the User service span
-How It Works:
-Forward path (request):
-Client → User → Image
-Uses standard trace context propagation (same trace_id, parent-child relationships) Return path (response):
-Image → User → Client
-Now uses span links instead of trying to fake parent-child relationships:
-Image service completes conversion and calls OtelNats.inject_with_link()
-Captures its current span_id: abc123
-Sends message with headers: {"x-span-id": "abc123", "x-trace-id": "xyz789", ...}
-User service receives message and calls OtelNats.extract_link(headers)
-Extracts span_id abc123 and creates a link
-Creates new span with links: [link_to_abc123]
-Jaeger/trace viewers show a visual link line connecting User span → Image span
-Client service does the same, linking back to User service span
-Result:
-In Jaeger/trace viewers, you'll now see:
-The forward path as a normal parent-child tree
-The return path spans connected via span links (shown as dotted lines or link indicators)
-All spans in the same trace (same trace_id)
-Visual continuity showing the complete async round-trip flow
-This is the correct way to model async fire-and-forget patterns in distributed tracing - span links show relationships without implying synchronous causality.
-
-### Setup
-
-We use `Phoenix` and `Req` who emits telemetry events.
-
-**dependencies**: a bunch to add (`PromEx` is for Grafana dashboards for collect Beam metrics and more generally Prometheus metrics in a custom designed dashboard)
-
-```elixir
-{:opentelemetry_exporter, "~> 1.10"},
-{:opentelemetry_api, "~> 1.5"},
-{:opentelemetry_ecto, "~> 1.2"},
-{:opentelemetry, "~> 1.7"},
-{:opentelemetry_phoenix, "~> 2.0"},
-{:opentelemetry_bandit, "~> 0.3.0"},
-{:opentelemetry_req, "~> 1.0"},
-{:tls_certificate_check, "~> 1.29"},
-
-# Prometheus metrics
-{:prom_ex, "~> 1.11.0"},
-{:telemetry_metrics_prometheus_core, "~> 1.2"},
-{:telemetry_poller, "~> 1.3"},
-```
-
-Note the `:temporary` settings:
-
-```elixir
-defp releases() do
-[
-      client_svc: [
-        applications: [
-          opentelemetry_exporter: :permanent,
-          opentelemetry: :temporary
-        ],
-        include_executables_for: [:unix],
-      ]
-    ]
-end
-```
-
-OpenTelemetry Trace Propagation in NATS
-
-When CONSUMING messages (receiving):
-
-```elixir
-def handle_message(%{topic: "some.topic", body: body, headers: headers}) do
-  # Extract trace context from incoming message headers
-  ctx = :otel_propagator_text_map.extract(headers || [])
-  OpenTelemetry.Ctx.attach(ctx)
-  
-  Tracer.with_span "MyService.handler" do
-    # Your logic here
-  end
-end
-```
-
-When PUBLISHING messages (sending):
-
-```elixir
-Tracer.with_span "MyService.publisher" do
-  # Inject current trace context into outgoing message headers
-  trace_headers = OtelNats.inject()
-  :ok = Gnat.pub(:gnat, "some.topic", message, headers: trace_headers)
-end
-```
-
-Headers converted between HTTP format (OTel) and NATS tuples
-=> OtelNats (and copy in Dockerfile just like protos)
-
-We use Erlang's [OS MON](https://www.erlang.org/doc/apps/os_mon/os_mon_app.html) to monitor the system:
-
-```elixir
-def application do
-    [
-      extra_applications: [
-        :logger,
-        :os_mon,
-        :tls_certificate_check
-      ],
-      mod: {ClientService.Application, []}
-    ]
-  end
-```
-
-In _endpoint.ex_, check that you have:
-
-```elixir
-# Request ID for distributed tracing correlation
-plug(Plug.RequestId)
-
-# Phoenix telemetry (emits events for OpenTelemetry)
-plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
-```
-
-In the macro injector module (_my_app_web.ex_), add `OpenTelemetry.Tracer` so that it is present in each controller.
-
-```elixir
-def controller do
-  quote do
-    use Phoenix.Controller, formats: [:json]
-
-    import Plug.Conn
-    require OpenTelemetry.Tracer, as: Tracer
-  end
-end
-```
-
-In _telemetry.ex_, your `init` callback looks like:
-
-```elixir
-def init(_arg) do
-  Logger.info("[ClientService.Telemetry] Setting up OpenTelemetry instrumentation")
-
-  children = [
-    # Telemetry poller for VM metrics (CPU, memory, etc.)
-    {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-  ]
-
-  :ok = setup_opentelemetry_handlers()
-
-  Supervisor.init(children, strategy: :one_for_one)
-end
-
-defp setup_opentelemetry_handlers do
-  # 1. Phoenix automatic instrumentation
-  # Creates spans for every HTTP request with route, method, status
-  :ok = OpentelemetryPhoenix.setup(adapter: :bandit)
-
-  # 2. Bandit HTTP server instrumentation
-  :ok = OpentelemetryBandit.setup(opt_in_attrs: [])
-end
-```
-
-### Propagation traces with Req
-
-Use `OpentelemetryReq.attach(propagate_trace_headers: true)` as [explained in OpenTelemetry_Req](https://hexdocs.pm/opentelemetry_req/OpentelemetryReq.html#module-trace-header-propagation) and as shown below:
-
-```elixir
-defp post(%Mcsv.V2.UserRequest{} = user, base, uri) do
-  binary = Mcsv.V2.UserRequest.encode(user)
-
-  Req.new(base_url: base)
-  |> OpentelemetryReq.attach(propagate_trace_headers: true)
-  |> Req.post(
-    url: uri,
-    body: binary,
-    headers: [{"content-type", "application/protobuf"}]
-  )
-end
-```
-
-### Start a trace
-
-The _trace context_ is automatically propagated.
-
-When we use `with_span`, we get the _parent-child_ relationship.
-
-- you get the current active span from the context
-- Sets the new span as a child of that span
-- Restores the previous span when done
-
-> `Baggage` is when you need metadata available in all downstream spans (userID,...). We don't use this here.
-
-```elixir
-require OpenTelemetry.Tracer, as: Tracer
-require OpenTelemetry.Span, as: Span
-
-def function_to_span(...) do
-  Tracer.with_span "#{__MODULE__}.create/1" do
-    Tracer.set_attribute(:value, i)
-    ok
-  end
-  [...]
-```
-
-If you use an _async_ call, you _must_ propagate it with  `Ctx.get_current()`, and `Ctx.attach(ctx)`:
-
-```elixir
-ctx = OpenTelemetry.Ctx.get_current()
-
-Task.async(fn ->
-  OpenTelemetry.Ctx.attach(ctx)
-  ImageMagick.get_image_info(image_binary)
-end)
-```
-
-## Services Overview
+    - [Broadway \& GenStage](#broadway--genstage)
+    - [NATS JetStream](#nats-jetstream)
+    - [OpenTelemetry](#opentelemetry)
+    - [Observability](#observability)
+    - [Protobuf](#protobuf)
+  - [License](#license)
+  - [Contributing](#contributing)
+
+---
+
+## Architecture Overview
 
 ```mermaid
 architecture-beta
     service lvb(cloud)[LiveBook]
     group api(cloud)[API]
-    service nats(internet)[NATS] in api
+    service nats(internet)[NATS JetStream] in api
     service client(internet)[Client] in api
-    service s3(disk)[S3 MinIO] in api
-    service user(server)[User] in api
-    service email(internet)[SMTP] in api
-    service image(disk)[Image] in api
+    service s3(disk)[MinIO S3] in api
+    service user(server)[User Gateway] in api
+    service email(internet)[Email Service] in api
+    service image(disk)[Image Service] in api
 
     lvb:R -- L:client
     client:T -- B:nats
@@ -781,653 +195,1698 @@ architecture-beta
     image:T -- B:s3
 ```
 
-### Client service
+**Event-Driven Communication**: Services communicate asynchronously via NATS JetStream subjects:
+
+- `user.*` - User operations (create, convert images)
+- `email.*` - Email delivery requests
+- `image.*` - Image conversion jobs
+- `client.*` - Client callbacks
+
+**Broadway Pipelines**: The "email" and "image" services run Broadway pipelines that consume from JetStream with:
+
+- Automatic retries and error handling
+- Parallel processing (configurable concurrency)
+- Back-pressure management
+- At-least-once delivery guarantees
+
+---
+
+## The Problem
+
+**Goal**: Build a system for high-volume PNG-to-PDF conversion with email notifications.
+
+**Challenge**: Image conversion is CPU-intensive and can become a bottleneck. How do you:
+
+- Identify where the bottleneck is?
+- Scale efficiently?
+- Ensure reliability (no lost messages)?
+- Trace requests across services?
+- Replay events if the process fails?
+
+**Answer**: Event-driven microservices with comprehensive observability.
+
+Before you can optimize or scale, you need visibility:
+
+- **Traces**: Which service is slow?
+- **Metrics**: CPU/memory consumption?
+- **Logs**: What errors occurred and when?
+
+This demo shows how to build and instrument such a system and how to use the async message broker NATS.IO.
+
+---
+
+## What This Demo Covers
+
+### Architecture Patterns
+
+- **Event-driven messaging** with NATS JetStream (persistent, ordered delivery)
+- **Broadway pipelines** for scalable stream processing
+- **Pub/Sub communication** replacing HTTP request/response
+- **S3 streaming** for large file handling (presigned URLs)
+- **Protobuf serialization** for type-safe, efficient message encoding
+
+### Observability (OpenTelemetry)
+
+- **Distributed tracing** with Jaeger (continuous traces across async boundaries)
+- **Structured logging** with Loki + Promtail
+- **Metrics collection** with Prometheus + PromEx
+- **Unified dashboards** in Grafana
+- **Span links** for async callback correlation
+
+### Technologies
+
+- **NATS JetStream** - Persistent, at-least-once message delivery
+- **Broadway** - Data processing pipelines with back-pressure
+- **MinIO** - S3-compatible object storage
+- **ImageMagick** - PNG/JPEG to PDF conversion
+- **Protobuf** - Typed message contracts
+- **OpenTelemetry** - Distributed tracing and metrics
+- **Grafana Stack** - Loki (logs), Prometheus (metrics), Jaeger (traces)
+
+---
+
+## Prerequisites
+
+### System Requirements
+
+- **Docker** and **Docker Compose** (for containerized services)
+- **Protocol Buffers Compiler** (`protoc`) - [Installation guide](https://grpc.io/docs/protoc-installation/)
+- **ImageMagick** and **Ghostscript** (for image processing)
+
+## Quick Start
+
+1. **Start all services**:
+
+   ```sh
+   docker-compose -f docker-compose-all.yml up -d
+   ```
+
+2. **Access services**: the Livebook (http://localhost:8080)  gives you access to Grafana, Jeager UI and the MinIO console (<minioadmin@minioadmin>)
+
+3. **Connect to a service**:
+
+   ```sh
+   docker-compose -f docker-compose-all.yml exec user_svc bin/user_svc remote
+   ```
+
+4. **Test the system** (from LiveBook or remote shell):
+
+   ```elixir
+   # Send an email
+   Email.create("user@example.com", "John Doe")
+
+   # Convert an image to PDF
+   Image.convert_png("test.png", "user@example.com")
+   ```
+
+5. **View traces in Jaeger**: http://localhost:16686
+
+---
+
+## Services Overview
+
+### Client Service (port 8085)
 
 - **Purpose**: External client interface for testing
 - **Key Features**:
-  - triggers User creation with concurrent streaming
-  - triggers PNG conversion of PNG images
-  - Receives final workflow callbacks
+  - Triggers user creation with concurrent requests
+  - Initiates PNG-to-PDF conversion jobs
+  - Receives workflow completion callbacks via NATS
 
-### User service
+### User Service (port 8081)
 
-- **Purpose**: Entry Gateway for user operations and workflow orchestration
+- **Purpose**: Entry gateway and workflow orchestration
 - **Key Features**:
   - User creation and email job dispatch
-  - Image conversion workflow orchestration
-  - Image storage with presigned URLs
-  - Completion callback relay to clients
+  - Image upload to MinIO with presigned URLs
+  - Workflow coordination (request → process → callback)
+  - MinIOCleaner: Periodic S3 cleanup (every 15 min, deletes files >1h old)
 
-### Email service
+### Email Service (port 8083)
 
-- **Purpose**: Email delivery service
+- **Purpose**: Email delivery via Broadway
 - **Key Features**:
-  - Swoosh email delivery
-  - Email templates (welcome, notification, conversion complete)
-  - Delivery callbacks
+  - Two Broadway pipelines: Welcome emails and Notifications
+  - Swoosh integration for SMTP delivery
+  - Email templates with dynamic variables
+  - Delivery status callbacks
 
-### Image service
+### Image Service (port 8084)
 
-- **Purpose**: Image conversion  service
+- **Purpose**: Image processing with S3 streaming
 - **Key Features**:
-  - PNG>PDF conversion using ImageMagick
-  - S3 storage of converted image
+  - Two Broadway pipelines: Binary-to-PDF and URL-to-PDF
+  - S3 streaming (download → convert → upload) for memory efficiency
+  - ImageMagick process streaming
+  - Automatic cleanup of source images after conversion
 
-### Workflow example: Email Notification
+---
 
-This workflow demonstrates async email notifications using Oban and Swoosh.
+## NATS JetStream + Broadway
+
+### Why JetStream?
+
+In a classic microservice architecture, you use HTTP requests and would use `Oban` to run background jobs and retires.
+
+**JetStream** is NATS with persistence and stream processing capabilities. Unlike core NATS (fire-and-forget), JetStream provides:
+
+- ✅ **At-least-once delivery** - Messages persist until acknowledged
+- ✅ **Automatic retries** - Failed messages are redelivered
+- ✅ **Message ordering** - Preserves publication order
+- ✅ **Consumer acknowledgments** - Explicit success/failure tracking
+- ✅ **Message replay** - Reprocess historical messages if needed
+- ✅ **Horizontal scaling** - Add more consumers for parallelism
+
+**Broadway** is the perfect complement:
+
+- Consumes from JetStream subjects
+- Handles back-pressure automatically
+- Provides configurable concurrency
+- Built-in error handling and retries
+
+> [!IMPORTANT]
+> **Queue Groups** (core NATS) vs **Durable Consumers** (JetStream):
+>
+> - **Queue Groups**: Load balancing for server-push subscriptions, no persistence
+> - **Durable Consumers**: Load balancing for client-pull subscriptions, with persistence and replay
+> - Both provide "one message to one instance" semantics, but durable consumers require JetStream
+>
+> **TLDR**: If you use pub/sub (server push), use `Gnat.ConsumerSupervisor` with a **queue group** for load balancing. If you use client pull (polling), enable JetStream and use Broadway with a **durable consumer**.
+
+> [!WARNING]
+> The `Gnat.Jetstream.PullConsumer` behavior has known issues with acknowledgments. **Use Broadway with `OffBroadway.Jetstream.Producer` instead** for production-ready client-pull with JetStream.
+
+### Setting Up Streams
+
+Streams are defined in configuration files and set up automatically at service startup.
+
+**Example**: Image conversion stream ([libs/jetstream_setup/priv/image_svc.exs](libs/jetstream_setup/priv/image_svc.exs)):
+
+```elixir
+# config/jetstream_setup.exs for image_svc
+%{
+  streams: [
+    %{
+      name: "IMAGES",
+      subjects: ["image.>"],  # Matches image.convert, image.converted, etc.
+      retention: :work_queue,
+      max_age: 3600,  # Messages expire after 1 hour
+      storage: :file  # Persistent storage
+    }
+  ],
+  consumers: [
+    %{
+      stream_name: "IMAGES",
+      durable_name: "binary_to_pdf",
+      filter_subject: "image.convert.binary",
+      deliver_policy: :new,  # Only process new messages
+      ack_policy: :explicit,
+      max_ack_pending: 1000
+    },
+    %{
+      stream_name: "IMAGES",
+      durable_name: "url_to_pdf",
+      filter_subject: "image.convert.url",
+      deliver_policy: :new,
+      ack_policy: :explicit
+    }
+  ]
+}
+```
+
+**Key Configuration Options**:
+
+| Option            | Values                    | Description                           |
+| ----------------- | ------------------------- | ------------------------------------- |
+| `deliver_policy`  | `new`, `all`, `last`      | Which messages to deliver on startup  |
+| `ack_policy`      | `explicit`, `none`, `all` | How consumers acknowledge messages    |
+| `max_ack_pending` | integer                   | Max unacknowledged messages in-flight |
+| `retention`       | `work_queue`, `limits`    | How messages are retained             |
+
+**Stream Setup Flow**:
+
+1. Service starts and connects to NATS
+2. `JetstreamSetup.setup_from_config/2` reads config from `priv/<service>.exs`
+3. Creates streams if they don't exist
+4. Creates durable consumers for each Broadway pipeline
+5. Broadway pipelines auto-start consuming
+
+**Debugging JetStream** (from remote shell):
+
+```elixir
+# Check stream status
+{:ok, %{body: body}} = Gnat.request(:gnat, "$JS.API.STREAM.INFO.IMAGES", "", receive_timeout: 2000)
+Jason.decode!(body) |> Map.get("state")
+# => %{"messages" => 42, "bytes" => 1024, ...}
+
+# Purge stream (delete all messages)
+{:ok, _} = Gnat.request(:gnat, "$JS.API.STREAM.PURGE.IMAGES", Jason.encode!(%{}))
+```
+
+### Broadway Pipelines
+
+Broadway provides structured data processing with automatic back-pressure and error handling.
+
+**Example**: Email notification pipeline ([apps/email_svc/lib/nats/broadway_notification.ex](apps/email_svc/lib/nats/broadway_notification.ex)):
+
+```elixir
+defmodule Broadway.Emails.Notification do
+  use Broadway
+  require Logger
+  require OpenTelemetry.Tracer, as: Tracer
+
+  def start_link(_opts) do
+    Broadway.start_link(__MODULE__,
+      name: __MODULE__,
+      producer: [
+        module: {
+          OffBroadway.Jetstream.Producer,
+          connection_name: :gnat,
+          stream_name: "EMAILS",
+          consumer_name: "notification_mailer",
+          max_number_of_messages: 50,  # Fetch 50 messages per batch
+          receive_interval: 10         # Poll every 10ms for low latency
+        },
+        concurrency: 2  # 2 producer processes
+      ],
+      processors: [
+        mailer: [concurrency: 4]  # 4 parallel email senders
+      ]
+    )
+  end
+
+  @impl true
+  def handle_message(:mailer, msg, _ctx) do
+
+    %Broadway.Message{data: binary_body} = msg
+
+    # Decode protobuf message
+    %Mcsv.V3.EmailRequest{} = req = Mcsv.V3.EmailRequest.decode(binary_body)
+
+    case send_email(req) do
+      :ok ->
+        {:ack, "ok"}  # ACK message
+
+      {:error, reason} ->
+        {:nack, reason}
+    end
+  end
+end
+```
+
+**Broadway Configuration Tuning**:
+
+```elixir
+# High-throughput configuration (Image Service)
+producer: [
+  concurrency: 2,           # Multiple producers for pulling messages
+  module: {
+    OffBroadway.Jetstream.Producer,
+    max_number_of_messages: 50,  # Large batches
+    receive_interval: 10         # Frequent polling (10ms)
+  }
+],
+processors: [
+  im: [concurrency: 8]      # 8 parallel image conversions
+]
+
+# vs. Low-latency configuration (Email Service)
+producer: [
+  concurrency: 2,
+  module: {
+    OffBroadway.Jetstream.Producer,
+    max_number_of_messages: 50,
+    receive_interval: 10
+  }
+],
+processors: [
+  mailer: [concurrency: 4]  # 4 parallel email senders
+]
+```
+
+**Performance Optimizations** (from session):
+- Changed `receive_interval` from 100ms → 10ms (10x faster polling)
+- Increased `max_number_of_messages` from 10 → 50 (5x larger batches)
+- Increased processor concurrency: 2 → 8 (4x parallelism)
+- Result: Significant latency reduction and throughput improvement
+
+### Load Balancing with Multiple Service Instances
+
+**Question**: Does NATS provide automatic load balancing when running multiple instances of the same service?
+
+**Answer**: **YES!** NATS provides built-in load balancing through two mechanisms:
+
+| Mechanism             | NATS Type | Model       | JetStream Required? | Persistence |
+| --------------------- | --------- | ----------- | ------------------- | ----------- |
+| **Queue Groups**      | Core NATS | Server Push | ❌ No                | ❌ No        |
+| **Durable Consumers** | JetStream | Client Pull | ✅ Yes               | ✅ Yes       |
+
+Both provide **work queue semantics** (one message → one instance), but durable consumers add persistence, replay, and acknowledgments.
+
+#### How It Works
+
+**Key Concept**: **Durable consumers** act as a shared subscription point. Multiple service instances can consume from the same durable consumer, and JetStream automatically distributes messages across them.
+
+**Load Balancing Model**:
+
+```mermaid
+flowchart TB
+    Publisher[Publisher] -->|pub| Stream[NATS Stream: IMAGES]
+    Stream -->|distribute| Consumer[Durable Consumer: url_to_pdf]
+    Consumer -->|msg 1, 3, 5...| Instance1[Image Service 1<br>Broadway Pipeline]
+    Consumer -->|msg 2, 4, 6...| Instance2[Image Service 2<br>Broadway Pipeline]
+    Consumer -->|msg 7, 9...| Instance3[Image Service 3<br>Broadway Pipeline]
+```
+
+**Guarantee**: Each message is delivered to **exactly one** service instance (work queue semantics).
+
+#### Client Pull Model (Broadway with OffBroadway.Jetstream.Producer)
+
+**How it works**:
+1. Each Broadway instance connects to the **same durable consumer**
+2. Each instance pulls messages independently via `JetStream.Pull`
+3. JetStream tracks which messages are delivered to which instance
+4. Unacknowledged messages are automatically redelivered
+
+**Configuration** (identical across all instances):
+
+```elixir
+# Both image_svc_1 and image_svc_2 use the same config
+Broadway.start_link(
+  __MODULE__,
+  name: __MODULE__,
+  producer: [
+    module: {
+      OffBroadway.Jetstream.Producer,
+      connection_name: :gnat,
+      stream_name: "IMAGES",
+      consumer_name: "url_to_pdf",  # ← SAME durable consumer name
+      max_number_of_messages: 50,
+      receive_interval: 10
+    },
+    concurrency: 2
+  ],
+  processors: [
+    im: [concurrency: 8]
+  ]
+)
+```
+
+**Load Distribution**:
+
+- Instance 1 pulls 50 messages → starts processing
+- Instance 2 pulls 50 messages (different messages) → starts processing
+- As each instance ACKs completed messages, it pulls more
+- Faster instances automatically process more messages
+
+**Advantages**:
+
+- ✅ Automatic back-pressure (instances only pull when ready)
+- ✅ Fair distribution (slow instances don't slow down fast ones)
+- ✅ No configuration needed (just use the same `consumer_name`)
+- ✅ Fault tolerance (if instance 1 crashes, its messages are redelivered to instance 2)
+
+#### Server Push Model (Gnat.ConsumerSupervisor with Queue Groups)
+
+**How it works**:
+
+1. Each service instance subscribes to the **same queue group**
+2. NATS pushes each message to **one random member** of the queue group
+3. Messages are distributed round-robin or randomly
+
+**Configuration** (identical across all instances):
+
+```elixir
+# Both email_svc_1 and email_svc_2 use the same config
+Gnat.ConsumerSupervisor.start_link(
+  %{
+    connection_name: :gnat,
+    module: EmailService.MessageHandler,
+    subscription_topics: [
+      %{
+        topic: "email.send",
+        queue_group: "email_workers"  # ← SAME queue group
+      }
+    ]
+  },
+  name: EmailService.ConsumerSupervisor
+)
+```
+
+**Load Distribution**:
+
+- Message 1 → pushed to Instance 1
+- Message 2 → pushed to Instance 2
+- Message 3 → pushed to Instance 1
+- Message 4 → pushed to Instance 2
+- ...
+
+**Advantages**:
+
+- ✅ Low latency (no polling, messages pushed immediately)
+- ✅ Simple configuration (just specify queue group name)
+- ✅ Automatic distribution (NATS handles routing)
+
+**Disadvantages compared to client-pull**:
+
+- ⚠️ No automatic back-pressure (NATS keeps pushing even if instance is overloaded)
+- ⚠️ Less control over batch sizes
+
+#### Demo: Running 2 Image Service Instances
+
+**1. Start services with 2 image_svc instances**:
+
+```sh
+docker-compose -f docker-compose-load-balance-test.yml up -d
+```
+
+This starts:
+
+- `image_svc_1` on port 8084
+- `image_svc_2` on port 8094
+- Both connect to the **same durable consumer**: `url_to_pdf`
+
+**2. Monitor logs from both instances**:
+
+```sh
+# Terminal 1
+docker-compose -f docker-compose-load-balance-test.yml logs -f image_svc_1
+
+# Terminal 2
+docker-compose -f docker-compose-load-balance-test.yml logs -f image_svc_2
+```
+
+**3. Publish 100 image conversion jobs**:
+
+```elixir
+# From livebook or remote shell
+Task.async_stream(1..100, fn i ->
+  # Publish image conversion request
+  request = %Mcsv.V3.ImageConversionRequest{
+    user_id: "user_#{i}",
+    user_email: "user#{i}@example.com",
+    source: {:s3_ref, %{bucket: "msvc-images", key: "test.png"}},
+    input_format: "png",
+    pdf_quality: "high",
+    job_id: "job_#{i}"
+  }
+
+  binary = Mcsv.V3.ImageConversionRequest.encode(request)
+  :ok = Gnat.pub(:gnat, "image.convert.url", binary)
+end, max_concurrency: 10)
+|> Stream.run()
+```
+
+**4. Observe load balancing**:
+
+You'll see logs like this:
+
+```txt
+# image_svc_1 logs
+[Broadway] Processing URL/streaming message  # job_1
+[Broadway] Processing URL/streaming message  # job_3
+[Broadway] Processing URL/streaming message  # job_5
+...
+
+# image_svc_2 logs
+[Broadway] Processing URL/streaming message  # job_2
+[Broadway] Processing URL/streaming message  # job_4
+[Broadway] Processing URL/streaming message  # job_6
+...
+```
+
+**5. Verify in Jaeger**:
+
+Open Jaeger UI (<http://localhost:16686>) and search for traces. You'll see:
+
+- Some traces show `image_svc_1` as the service
+- Other traces show `image_svc_2` as the service
+- Work is distributed roughly 50/50
+
+**6. Scale up further**:
+
+```sh
+# Add a 3rd instance
+docker-compose -f docker-compose-load-balance-test.yml up -d --scale image_svc_3=1
+```
+
+Messages are now distributed across 3 instances automatically!
+
+#### Important Configuration Notes
+
+**1. Durable Consumer Name Must Be Unique Per Pipeline**:
+
+```elixir
+# ❌ WRONG: Different pipelines with same consumer name
+consumer_name: "image_processor"  # url_to_pdf pipeline
+consumer_name: "image_processor"  # binary_to_pdf pipeline (CONFLICT!)
+
+# ✅ CORRECT: Different pipelines with unique names
+consumer_name: "url_to_pdf"       # url_to_pdf pipeline
+consumer_name: "binary_to_pdf"    # binary_to_pdf pipeline
+```
+
+**2. Consumer Name Must Be Same Across Instances**:
+
+```elixir
+# ✅ CORRECT: All instances of url_to_pdf use same name
+# image_svc_1
+consumer_name: "url_to_pdf"
+
+# image_svc_2
+consumer_name: "url_to_pdf"
+
+# image_svc_3
+consumer_name: "url_to_pdf"
+```
+
+**3. Stream Name Must Be Same**:
+
+```elixir
+# ✅ CORRECT: All instances consume from same stream
+stream_name: "IMAGES"
+```
+
+#### When to Use Which Model?
+
+| Model       | Use Case                       | Advantages                       |
+| ----------- | ------------------------------ | -------------------------------- |
+| Client Pull | CPU-intensive batch processing | Back-pressure, fair distribution |
+| Client Pull | High-throughput pipelines      | Batching, parallel processing    |
+| Server Push | Low-latency event handling     | Immediate delivery, simplicity   |
+| Server Push | Lightweight message processing | No polling overhead              |
+
+**Recommendation**: For image conversion (CPU-bound, variable processing time), **client pull (Broadway)** is the better choice.
+
+### Pub/Sub Patterns
+
+**Publishing messages** (with trace context):
+
+```elixir
+# In user_svc: Publish image conversion request
+defp publish_image_conversion(user_id, image_url) do
+  request = %Mcsv.V3.ImageConversionRequest{
+    user_id: user_id,
+    source: {:s3_ref, %{bucket: "msvc-images", key: image_url}},
+    input_format: "png",
+    pdf_quality: "high",
+    job_id: generate_job_id()
+  }
+
+  binary = Mcsv.V3.ImageConversionRequest.encode(request)
+
+  # Inject trace context into NATS headers
+  trace_headers = OtelNats.inject()
+
+  :ok = Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
+end
+```
+
+**Consuming messages** (Broadway handler):
+
+```elixir
+@impl true
+def handle_message(:im, msg, _ctx) do
+  # Extract trace context from incoming message
+  headers = msg.metadata[:headers] || []
+  _token = OtelNats.extract_and_attach(headers)
+
+  %Broadway.Message{data: binary_body} = msg
+
+  # Process message within a traced span
+  Tracer.with_span "Broadway.Images.UrlToPdf.handle_message" do
+    %Mcsv.V3.ImageConversionRequest{} = req =
+      Mcsv.V3.ImageConversionRequest.decode(binary_body)
+
+    perform_conversion(req)
+  end
+
+  # Broadway automatically ACKs on success, NACKs on error
+  msg
+end
+```
+
+**Idempotency** (preventing duplicate processing):
+
+```elixir
+defp publish_email_request(user_request) do
+  binary = Mcsv.V2.EmailRequest.encode(user_request)
+
+  # Generate deterministic message ID
+  msg_id = :crypto.hash(:sha256, "#{user_request.user_id}-#{user_request.email}-email")
+           |> Base.encode16(case: :lower)
+
+  Jetstream.publish(:gnat, "email.send", binary,
+    headers: [
+      {"Nats-Msg-Id", msg_id},    # Deduplication by JetStream
+      {"trace-id", get_trace_id()}  # Distributed tracing
+    ]
+  )
+end
+```
+
+---
+
+## Message Flow Examples
+
+### Email Notification Flow
 
 ```mermaid
 sequenceDiagram
-    Client->> +Nats: pub <br> user.send.email
-    Nats -->> +User: dispatch
-    User ->> Nats: pub <br> email.send.email
-    Nats -->> +Email: dispatch
-    Email ->> Email: do email job
-    Email ->> Nats: pub <br> user.email.sent
-    Nats -->> User: dispatch 
-    User ->> Nats: pub <br> client.email.sent
-    Nats -->> Client: dispatch
+    Client->>+NATS: pub <br> user.send.email
+    NATS-->>+User: dispatch
+    User->>NATS: pub <br> email.send
+    NATS-->>+Email: dispatch (Broadway)
+    Email->>Email: Send via Swoosh
+    Email->>NATS: pub <br> user.email.sent
+    NATS-->>User: dispatch
+    User->>NATS: pub <br> client.email.sent
+    NATS-->>Client: dispatch (callback)
 ```
 
 **Key Features**:
 
-- Concurrent request handling via `Task.async_stream`
 - Async processing after job enqueue
-- Oban retry logic for failed emails
+- Broadway automatic retries for failed emails
 - Callback chain for status tracking
+- Full trace propagation through NATS headers
 
-Example of trace propagation via telemetry of the email flow:
-
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/trace-email.png" alt="trace-email">
-
-### Workflow Example: PNG to PDF Conversion (Pull Model)
-
-This workflow demonstrates efficient binary data handling using the "Pull Model" or "Presigned URL Pattern" (similar to AWS S3). Instead of passing large image binaries through the service chain, only metadata and URLs are transmitted.
-
-- **Pull Model & Presigned URLs**: Image service fetches data on-demand via temporary URLs (using AWS S3 pattern)
+### Image Conversion Flow
 
 ```mermaid
 sequenceDiagram
-    Client ->>+Nats: pub <br> user.convert image
-    Nats -->> + User: dispatch <br> user.dispatch
-    User ->> +S3: image storage + URL
-    User ->> Nats: pub <br> image.convert URL
-    Nats -->> Image: dispatch <br> image.conver URL
-    Image <<->> +S3: fetch binary
-    Image ->> Image: convert<br> new presigned-URL
-    Image ->>S3: save new presigned-URL
-    Image ->> Nats: pub <br> user.converted URL
-    Nats -->> User: dispatch <br> user.converted URL
-    User ->> Nats: pub <br> client.converted URL
-    Nats -->> Client: dispatch <br> client.converted URL
-
+    Client->>+NATS: pub <br> user.convert.image
+    NATS-->>+User: dispatch
+    User->>+S3: Upload image + presigned URL
+    User->>NATS: pub <br> image.convert.url
+    NATS-->>Image: dispatch (Broadway)
+    Image->>S3: Stream download
+    Image->>Image: ImageMagick convert
+    Image->>S3: Upload PDF
+    Image->>NATS: pub <br> user.image.converted
+    NATS-->>User: dispatch
+    User->>NATS: pub <br> client.image.converted
+    NATS-->>Client: dispatch (callback)
 ```
 
-Example of trace propagation via telemetry of the image flow:
+**Pull Model / Presigned URLs**:
 
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/trace-image-convert.png" alt="trace-image">
+- Large binaries never pass through message queue
+- Only metadata (URLs, job IDs) transmitted
+- Services fetch data on-demand via presigned S3 URLs
+- Reduces message size and improves throughput
 
-## Observability
+---
 
-Now that we have our workflows, we want to add observability.
+## Storage Management
 
-Firstly a quote:
+### MinIO/S3 Integration
 
-> "Logs, metrics, and traces are often known as the three pillars of observability. While plainly having access to logs, metrics, and traces doesn't necessarily make systems more observable, these are powerful tools that, if understood well, can unlock the ability to build better systems."
-
-### Telemetry vs OpenTelemetry: Two Different Things
-
-Before diving in, it's important to understand the difference between **Erlang/Elixir Telemetry** and **OpenTelemetry**:
-
-#### Erlang/Elixir `:telemetry` (Local Event Bus)
-
-- **Purpose**: In-process event notification system for the BEAM VM
-- **Scope**: Single Elixir/Erlang application
-- **What it does**: Emits events locally (e.g., `[:phoenix, :endpoint, :start]`)
-- **Package**: [`:telemetry`](https://hexdocs.pm/telemetry/) library
-- **Use case**: Libraries (Phoenix, Ecto, Oban) emit events; you attach handlers to collect metrics
-
-**Example:**
+All services use the `libs/storage` library for S3 operations via `ReqS3Storage`:
 
 ```elixir
-# Phoenix emits telemetry events
-:telemetry.execute([:phoenix, :endpoint, :stop], %{duration: 42}, %{route: "/api/users"})
+# Upload file to S3
+{:ok, result} = ReqS3Storage.store(
+  pdf_binary,
+  "msvc-images",
+  "job_#{job_id}.pdf",
+  "application/pdf",
+  s3_opts
+)
 
-# You attach a handler to collect metrics
-:telemetry.attach("my-handler", [:phoenix, :endpoint, :stop], &handle_event/4, nil)
+# Generate presigned URL (valid for 1 hour)
+url = ReqS3Storage.generate_presigned_url(
+  "msvc-images",
+  result.key,
+  s3_opts
+)
+
+# List objects in bucket
+{:ok, objects} = ReqS3Storage.list_objects("msvc-images", s3_opts)
+# => [%{key: "job_123.pdf", size: 1024000, last_modified: ~U[2025-11-19 15:30:00Z]}]
+
+# Delete object
+:ok = ReqS3Storage.delete("msvc-images", "job_123.pdf", s3_opts)
 ```
 
-#### OpenTelemetry (Distributed Observability Standard)
+### Automatic Cleanup
 
-- **Purpose**: Industry-standard protocol for distributed tracing, metrics, and logs
-- **Scope**: Cross-service, multi-language, cloud-native systems
-- **What it does**: Propagates trace context across services, exports to observability backends (Jaeger, Prometheus, Grafana)
-- **Package**: [`:opentelemetry`](https://hexdocs.pm/opentelemetry/) + instrumentation libraries
-- **Use case**: Track requests flowing through multiple microservices
+**Two cleanup mechanisms work in tandem**:
 
-**Example:**
+- MinIOCleaner (Periodic Cleanup): Runs in `user_svc` every 15 minutes, deletes files older than 1 hour. [apps/user_svc/lib/user_svc/minio_cleaner.ex](apps/user_svc/lib/user_svc/minio_cleaner.ex):
+
+- Broadway Cleanup Task (Immediate Cleanup): Deletes source images immediately after successful PDF conversion via a supervised Task. [apps/image_svc/lib/nats/broadway_image_url_to_pdf.ex](apps/image_svc/lib/nats/broadway_image_url_to_pdf.ex#L131-L151):
+
+**Cleanup Timeline**:
+
+1. User uploads image → stored in S3
+2. Image service converts to PDF → new PDF in S3
+3. **Immediate**: Broadway cleanup task deletes original image
+4. **Periodic**: MinIOCleaner deletes old PDFs (>1h old)
+
+---
+
+## Protobuf Contracts
+
+Protobuf provides type-safe, efficient serialization for inter-service communication.
+
+### Centralized Proto Compilation
+
+All `.proto` files live in `libs/protos` and are compiled as a Mix dependency.
+
+**Structure**:
+
+```txt
+libs/protos/
+├── proto_defs/
+│   ├── V1/
+│   │   └── email.proto
+│   └── V3/
+│       └── image.proto
+├── lib/protos/
+│   ├── V1/
+│   │   └── email.pb.ex (generated)
+│   └── V3/
+│       └── image.pb.ex (generated)
+└── mix.exs
+```
+
+**Compilation** (automatic via Mix compiler):
 
 ```elixir
-# OpenTelemetry creates spans that propagate across HTTP calls
-Tracer.with_span "user_svc.create_user" do
-  # This trace context is automatically propagated to downstream services
-  JobSvcClient.enqueue_email(user)
+# libs/protos/mix.exs
+def project do
+  [
+    compilers: Mix.compilers() ++ [:proto_compiler],
+    proto_compiler: [
+      source_dir: "proto_defs/V3",
+      output_dir: "lib/protos/V3"
+    ]
+  ]
+end
+
+# Custom Mix compiler task
+defmodule Mix.Tasks.Compile.ProtoCompiler do
+  use Mix.Task.Compiler
+
+  def run(_args) do
+    System.cmd("protoc", [
+      "--elixir_out=lib/protos/V3",
+      "proto_defs/V3/image.proto"
+    ])
+    :ok
+  end
 end
 ```
 
-#### How They Work Together in This Project
+**Usage in services**:
 
-1. **Erlang `:telemetry`** (local events) → Libraries emit events inside each service
-2. **`:opentelemetry_phoenix`** (bridge) → Subscribes to `:telemetry` events and converts them to OpenTelemetry spans
-3. **OpenTelemetry SDK** (exporter) → Sends spans to Jaeger/Tempo for distributed tracing
-4. **PromEx** (metrics) → Also subscribes to `:telemetry` events and exposes Prometheus metrics
+```elixir
+# apps/image_svc/mix.exs
+defp deps do
+  [
+    {:protos, path: "../../libs/protos"},  # Just add dependency
+    {:protobuf, "~> 0.15.0"}
+  ]
+end
+```
 
-**Think of it this way:**
+### Example Proto Definition
 
-- `:telemetry` = **local event bus** (within one service)
-- `OpenTelemetry` = **distributed tracing protocol** (across all services)
+[libs/protos/proto_defs/V3/image.proto](libs/protos/proto_defs/V3/image.proto):
 
-We will only scratch the surface of observability.
+```proto
+syntax = "proto3";
+package mcsv.v3;
+
+message ImageConversionRequest {
+  string user_id = 1;
+  string user_email = 2;
+
+  oneof source {
+    bytes binary = 3;           // In-memory binary data
+    S3Reference s3_ref = 4;     // S3 presigned URL reference
+  }
+
+  string input_format = 5;      // "png", "jpeg"
+  string pdf_quality = 6;       // "low", "high"
+  string job_id = 7;
+  bool strip_metadata = 8;
+  int32 max_width = 9;
+  int32 max_height = 10;
+}
+
+message S3Reference {
+  string bucket = 1;
+  string key = 2;
+}
+
+message ImageConversionResponse {
+  bool success = 1;
+  string message = 2;
+  int64 input_size = 3;
+  int64 output_size = 4;
+  int32 width = 5;
+  int32 height = 6;
+  string job_id = 7;
+  string pdf_url = 8;
+  string user_email = 9;
+}
+```
+
+### Encode/Decode Pattern
+
+**Encoding** (before publishing to NATS):
+
+```elixir
+request = %Mcsv.V3.ImageConversionRequest{
+  user_id: "user_123",
+  user_email: "user@example.com",
+  source: {:s3_ref, %{bucket: "msvc-images", key: "image.png"}},
+  input_format: "png",
+  pdf_quality: "high",
+  job_id: "job_#{System.unique_integer()}"
+}
+
+binary = Mcsv.V3.ImageConversionRequest.encode(request)
+:ok = Gnat.pub(:gnat, "image.convert.url", binary)
+```
+
+**Decoding** (in Broadway handler):
+
+```elixir
+@impl true
+def handle_message(:im, msg, _ctx) do
+  %Broadway.Message{data: binary_body} = msg
+
+  # Decode with pattern matching for type safety
+  %Mcsv.V3.ImageConversionRequest{
+    source: {:s3_ref, %{bucket: bucket, key: key}},
+    input_format: format,
+    pdf_quality: quality,
+    job_id: job_id
+  } = Mcsv.V3.ImageConversionRequest.decode(binary_body)
+
+  # Process the request...
+end
+```
+
+**Versioning** (namespace isolation):
+
+```elixir
+def MyApp.MixProject do
+  def application do
+    [
+      ...,
+      proto_compiler: [
+        source_dir: "proto_defs/#{protos_version()}",
+        output_dir: "lib/protos/#{protos_version()}"
+      ]
+    ]
+  end
+
+  defp protos_version, do: "V3" # <-- current version
+end
+```
+
+**Usage**:
+
+- In the _proto files, use: `package msvc.v3`
+- In the code, namespace with `V3`:
+
+```elixir
+# New version (current)
+%Mcsv.V3.ImageConversionRequest{user_id: id, user_email: email, pdf_quality: "high"}
+```
+
+**Updating Proto Versions**:
+
+```sh
+# 1. Create new version folder
+mkdir libs/protos/proto_defs/V4
+
+# 2. Update mix.exs
+# Change: protos_version: "V4"
+
+# 3. Clean and recompile
+mix deps.clean protos --build
+mix deps.get
+mix compile --force
+```
+
+---
+
+## OpenTelemetry Distributed Tracing
+
+### Setup
+
+**Dependencies** (add to all services):
+
+```elixir
+defp deps do
+  [
+    # OpenTelemetry core
+    {:opentelemetry_api, "~> 1.5"},
+    {:opentelemetry, "~> 1.7"},
+    {:opentelemetry_exporter, "~> 1.10"},
+
+    # Auto-instrumentation
+    {:opentelemetry_phoenix, "~> 2.0"},
+    {:opentelemetry_bandit, "~> 0.3.0"},
+    {:opentelemetry_req, "~> 1.0"},
+    {:opentelemetry_ecto, "~> 1.2"},  # If using database
+
+    # Metrics
+    {:prom_ex, "~> 1.11.0"}
+  ]
+end
+```
+
+**Application config** ([apps/user_svc/lib/user_svc_web/telemetry.ex](apps/user_svc/lib/user_svc_web/telemetry.ex)):
+
+```elixir
+defmodule UserServiceWeb.Telemetry do
+  use Supervisor
+
+  def init(_arg) do
+    Logger.info("[UserService.Telemetry] Setting up OpenTelemetry instrumentation")
+
+    children = [
+      {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
+    ]
+
+    :ok = setup_opentelemetry_handlers()
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp setup_opentelemetry_handlers do
+    # Auto-instrument Phoenix HTTP requests
+    :ok = OpentelemetryPhoenix.setup(adapter: :bandit)
+
+    # Auto-instrument Bandit web server
+    :ok = OpentelemetryBandit.setup(opt_in_attrs: [])
+
+    :ok
+  end
+end
+```
+
+**Release config** (apps/<service>/mix.exs):
+
+```elixir
+defp releases do
+  [
+    user_svc: [
+      applications: [
+        opentelemetry_exporter: :permanent,
+        opentelemetry: :temporary  # Start after application
+      ]
+    ]
+  ]
+end
+```
+
+**Runtime config** ([apps/user_svc/config/runtime.exs](apps/user_svc/config/runtime.exs)):
+
+```elixir
+# OpenTelemetry exporter configuration
+otel_protocol = System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http")  # or "grpc"
+otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4318")
+
+config :opentelemetry_exporter,
+  otlp_protocol: (if otel_protocol == "grpc", do: :grpc, else: :http_protobuf),
+  otlp_endpoint: otel_endpoint
+```
+
+### Trace Context Propagation
+
+**OtelNats Helper** ([libs/otel_nats/lib/otel_nats.ex](libs/otel_nats/lib/otel_nats.ex)):
+
+Custom module for trace context propagation through NATS headers.
+
+```elixir
+defmodule OtelNats do
+  @moduledoc """
+  OpenTelemetry trace context propagation for NATS messages.
+  Converts between OTel headers (HTTP format) and NATS tuples.
+  """
+
+  # Extract trace context from incoming NATS message
+  def extract_and_attach(headers) do
+    ctx = :otel_propagator_text_map.extract(headers)
+    OpenTelemetry.Ctx.attach(ctx)
+    ctx
+  end
+
+  # Inject trace context into outgoing NATS message
+  def inject do
+    :otel_propagator_text_map.inject([])
+  end
+
+  # Inject trace context + span link for async callbacks
+  def inject_with_link do
+    ctx = OpenTelemetry.Ctx.get_current()
+    span_ctx = :otel_tracer.current_span_ctx(ctx)
+
+    trace_id = :otel_span.trace_id(span_ctx) |> encode_trace_id()
+    span_id = :otel_span.span_id(span_ctx) |> encode_span_id()
+
+    :otel_propagator_text_map.inject([
+      {"x-span-id", span_id},
+      {"x-trace-id", trace_id}
+    ])
+  end
+
+  # Extract span link from headers (for callbacks)
+  def extract_link(headers) do
+    span_id = List.keyfind(headers, "x-span-id", 0) |> elem(1) |> decode_span_id()
+    trace_id = List.keyfind(headers, "x-trace-id", 0) |> elem(1) |> decode_trace_id()
+
+    OpenTelemetry.link(%{
+      trace_id: trace_id,
+      span_id: span_id,
+      attributes: [],
+      tracestate: []
+    })
+  end
+
+  defp encode_span_id(span_id), do: :io_lib.format("~16.16.0b", [span_id]) |> IO.iodata_to_binary()
+  defp encode_trace_id(trace_id), do: :io_lib.format("~32.16.0b", [trace_id]) |> IO.iodata_to_binary()
+
+  defp decode_span_id(hex_string), do: String.to_integer(hex_string, 16)
+  defp decode_trace_id(hex_string), do: String.to_integer(hex_string, 16)
+end
+```
+
+**Usage patterns**:
+
+| Function               | Use Case                     | When to Use          |
+| ---------------------- | ---------------------------- | -------------------- |
+| `inject()`             | Standard context propagation | Request forwarding   |
+| `inject_with_link()`   | Context + span ID            | Response messages    |
+| `extract_and_attach()` | Extract incoming context     | All message handlers |
+| `extract_link()`       | Extract span link            | Response handlers    |
+
+**Publishing with trace context**:
+
+```elixir
+Tracer.with_span "UserService.publish_image_request" do
+  binary = Mcsv.V3.ImageConversionRequest.encode(request)
+
+  # Inject current trace context into NATS headers
+  trace_headers = OtelNats.inject()
+
+  :ok = Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
+end
+```
+
+**Consuming with trace context**:
+
+```elixir
+def handle_message(:im, msg, _ctx) do
+  # Extract and attach trace context from incoming message
+  headers = msg.metadata[:headers] || []
+  _token = OtelNats.extract_and_attach(headers)
+
+  # This span is now part of the distributed trace
+  Tracer.with_span "ImageService.handle_conversion" do
+    process_image(msg.data)
+  end
+end
+```
+
+### Span Links for Async Flows
+
+**Problem**: Async callbacks don't maintain parent-child relationships.
+
+**Solution**: Use span links to visually connect async return paths.
+
+**Forward path** (request):
+
+```txt
+Client → User → Image
+(normal parent-child trace)
+```
+
+**Return path** (response):
+
+```txt
+Image → User → Client
+(linked spans, not parent-child)
+```
+
+**Implementation**:
+
+**1. Image service completes conversion** (publish with link):
+
+```elixir
+# After successful conversion
+response_binary = build_response(job_id, pdf_url)
+
+# Inject trace context + current span_id for linking
+trace_headers = OtelNats.inject_with_link()
+
+:ok = Gnat.pub(:gnat, "user.image.converted", response_binary, headers: trace_headers)
+```
+
+**2. User service receives callback** (extract link):
+
+```elixir
+def handle_message(%{topic: "user.image.converted", body: body, headers: headers}) do
+  # Extract span link from headers
+  link = OtelNats.extract_link(headers)
+
+  # Create span with link to Image service span
+  Tracer.with_span "UserService.handle_image_converted", links: [link] do
+    process_callback(body)
+  end
+end
+```
+
+**3. Visualize in Jaeger**:
+
+![Span links in Jaeger](priv/trace-image-convert.png)
+
+- Forward path: solid lines (parent-child)
+- Return path: dotted lines (span links)
+- All spans in same trace (same trace_id)
+- Visual continuity shows complete async round-trip
+
+---
+
+## Observability Stack
 
 ```mermaid
 architecture-beta
-  group logs(cloud)[O11Y]
-    service loki(cloud)[Loki_3100 aggregator] in logs
-    service promtail(disk)[Promtail_9080 logs] in logs
-    service jaeger(cloud)[Jaeger_4317 traces] in logs
-    service sdtout(cloud)[SDTOUT OTEL] in logs
+  group logs(cloud)[Observability]
+    service loki(server)[Loki] in logs
+    service promtail(server)[Promtail] in logs
+    service jaeger(server)[Jaeger] in logs
+    service prom(server)[Prometheus] in logs
     service graf(cloud)[Grafana] in logs
-    service promex(cloud)[PromEx Metrics] in logs
 
-    sdtout:T --> B:promex
-    promex:R -- T:graf
-    sdtout:R --> L:jaeger
-    jaeger:R -- T:graf
-    loki:R -- L:graf
-    sdtout:B --> T:promtail
-    loki:L <-- R:promtail
+    promtail:B --> T:loki
+    loki:R --> L:graf
+    jaeger:B --> T:graf
+    prom:T --> B:graf
 ```
 
-### Stack Overview
+### Traces (Jaeger)
 
-The big picture:
+**Purpose**: Visualize request flow across services
 
-```mermaid
----
-title: Services
----
-  flowchart TD
-      subgraph SVC[microservices]
-          MS[All microservices<br>---<br> stdout]
-          MSOTEM[microservice<br>OpenTelemetry]
-      end
-      subgraph OBS[observability]
-          MS-->|HTTP stream| Promtail
-          Promtail -->|:3100| Loki
-          Loki -->|:3100| Grafana
-          Loki <-.->|:9000| MinIO
-          Jaeger -->|:16686| Grafana
-          Grafana -->|:3000| Browser
-          MinIO -->|:9001| Browser
-          MSOTEM -->|gRPC:4317| Jaeger
-      end
-```
+**Model**: PUSH (services send spans via OTLP)
 
-```mermaid
----
-title: Documentation
---- 
+**Format**: Protobuf (efficient binary encoding)
 
-  flowchart LR
-    Swagger --> |:8087| UI
-```
+**Storage**: In-memory (or Tempo with MinIO for persistence)
 
-The tools pictured above are designed to be used in a **container** context.
+**Access**: http://localhost:16686
 
-| System     | Purpose                | Description                                                                                                                                                                                                                                    |
-| ---------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prometheus | Metrics scrapper       | "How much CPU/memory/time?                                                                                                    "What's my p95 latency?" "How many requests per second?" "Is memory usage growing?" "Which endpoint is slowest?" |
-| Loki       | Logs scrapper          | Centralized logs from all services "Show me all errors in the last hour" "What did user X do?" "Find logs containing 'timeout'" "What happened before the crash?"                                                                              |
-| Jaeger     | Traces collection      | Full journey accross services "Which service is slow in this request?" "How does a request flow through services?" "Where did this request fail?" "What's the call graph?"                                                                     |
-| Grafana    | Reporting & Dashboards | Global view of the system                                                                                                                                                                                                                      |
-
-How does this work?
-
-| System            | Model                                       | Format                 | Storage                                        |
-| ----------------- | ------------------------------------------- | ---------------------- | ---------------------------------------------- |
-| Prometheus        | PULL (scrape)                               | Plain text             | Disk (TimeSerieDB)                             |
-|                   | GET /metrics Every 15s                      | key=value              | prometheus-data                                |
-| Loki via Promtail | PUSH  Batched                               | JSON (logs) structured | MinIO (S3) loki-chunks                         |
-| Jaeger (or Tempo) | PUSH OTLP                                   | Protobuf (spans)   │   | - Jaeger: memory only <br> - Tempo: S3 storage |
-| Grafana           | UI only, connected to Loki / Jaeger / Tempo | -                      | SQLite   (dashboards only)                     |
-
-### Trace pipeline
-
-`Jaeger` offers an excellent UI frontend tool to visualize the traces (whilst not `Tempo`).
-
-A view the services seen by Jaeger:
-
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/jaeger-flow.png" alt="jeager-flow">
-
-```mermaid
----
-title: Application Services and Trace pipeline
---- 
-
-flowchart TD
-    subgraph Traces[Each Service is a Trace Producer]
-        UE[Client or User or Job or ...<br> --- <br> OpenTelemetry SDK<br>buffer structured spans]
-    end
-
-    subgraph Cons[Traces consumer]
-        J[Jaeger:16686<br>in-memory<br>traces]
-    end
-
-    subgraph Viz[Traces visulizers]
-        G[Grafana:3000]
-        UI[Browser]
-    end
-
-    UE -->|batch ~5s<br>POST:4317<br> protobuf|J
-
-    G[GRAFANA<br>] -->|GET:16686<br>/api/traces|J
-    UI-->|:3000| G
-    UI-->|:16686|J
-```
-
-### Logs pipeline
-
-Logs are the foundation of observability. Understanding how they flow from your code to Grafana is crucial.
-
-#### How Logs Are Produced and Collected
-
-**1. Code → Elixir Logger (Async)**
-
-Logs are produced in your code using Elixir's built-in `Logger` macro (you `require Logger`):
-
-```elixir
-Logger.info("User created", user_id: user.id)
-Logger.error("Failed to convert image", error: reason)
-Logger.warning("High memory usage detected")
-```
-
-The Elixir `Logger` macrois **asynchronous** and runs in a separate process managed by the BEAM VM. This prevents logging from blocking your application code, as opposed to `IO.puts` which is a direct call.
-
-**2. Logger → stdout (OS)**
-
-The Logger eventually writes to **stdout** (standard output), which is captured by the operating system. In containerized environments, this goes to Docker's logging system.
-
-**3. Promtail → Loki (Log Aggregation)**
-
-`Promtail` is a log shipping agent that:
-
-- **Listens** to stdout from all containers
-- **Parses** log lines and extracts labels (service name, log level, etc.)
-- **Batches** log entries for efficiency
-- **Pushes** them to Loki via HTTP
-
-**4. Loki → Grafana (Query & Visualization)**
-
-`Loki` stores logs and makes them queryable. Grafana connects to Loki to:
-
-- Search logs by service, time range, or text
-- Correlate logs with traces and metrics
-- Create alerts based on log patterns
+**Flow**:
 
 ```mermaid
 flowchart LR
-    Code[Code<br>Logger.info error]
-    Logger[Elixir Logger<br>Async Process]
-    Stdout[stdout<br>OS/Docker]
-    Promtail[Promtail<br>Log Shipper]
-    Loki[Loki<br>Log Aggregator]
-    Grafana[Grafana<br>Visualization]
+    Service[Service<br>OpenTelemetry SDK] -->|batch ~5s<br>POST :4317<br>protobuf| Jaeger
+    Jaeger -->|GET 16686<br>/api/traces| Grafana
+    Browser -->|:16686| Jaeger
+    Browser -->|:3000| Grafana
+```
 
-    Code -->|emit| Logger
-    Logger -->|write| Stdout
+**Example trace** (Email workflow):
+
+![Email trace](priv/trace-email.png)
+
+**Key metrics**:
+
+- Total request duration: 142ms
+- Spans: 7 (Client → User → Email → callbacks)
+- Slowest span: Email.send (95ms)
+
+### Logs (Loki + Promtail)
+
+**Purpose**: Centralized log aggregation and search
+
+**Model**: PUSH (Promtail ships logs to Loki)
+
+**Format**: JSON (structured logging)
+
+**Storage**: MinIO S3 (loki-chunks bucket)
+
+**Access**: Grafana → Explore → Loki datasource
+
+**Flow**:
+
+```mermaid
+flowchart LR
+    Code[Code<br>Logger.info] -->|async| Logger[Elixir Logger]
+    Logger -->|write| Stdout[stdout<br>Docker]
     Stdout -->|scrape| Promtail
-    Promtail -->|HTTP push| Loki
+    Promtail -->|HTTP push<br>3100| Loki
     Loki -->|query| Grafana
 ```
 
-**Alternative: Docker Loki Driver**
+**Configuration** ([o11y_configs/promtail/promtail.yml](o11y_configs/promtail/promtail.yml)):
 
-> If you run locally with Docker, you can use the Docker daemon with a `loki` driver to read and push logs from stdout (via the Docker socket) directly to Loki.
->
-> We used `Promtail` instead because it's more Kubernetes-ready and provides more control over log parsing and labeling.
->
-> To use the Docker Loki driver locally:
->
-> ```sh
-> docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
-> ```
-
-### Metrics pipeline
-
-Metrics provide quantitative measurements of your system's performance and health. Understanding how metrics flow from your services to Grafana completes the observability picture.
-
-#### How Metrics Are Produced and Collected
-
-**1. Code → Erlang `:telemetry` Events**
-
-Metrics start as `:telemetry` events emitted by libraries (Phoenix, Ecto, Oban) and custom code:
-
-```elixir
-# Phoenix automatically emits telemetry events
-# [:phoenix, :endpoint, :stop] with measurements: %{duration: 42_000_000}
-
-# You can also emit custom events
-:telemetry.execute([:image_svc, :conversion, :complete], %{duration_ms: 150}, %{format: "png"})
+```yaml
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
 ```
 
-**2. PromEx → Prometheus Metrics**
+**Querying logs** (LogQL):
 
-`PromEx` subscribes to `:telemetry` events and converts them to Prometheus-compatible metrics:
+```logql
+# All errors in last hour
+{container="msvc-image-svc"} |= "error"
 
-- **Counters**: Total requests, errors (always increasing)
-- **Gauges**: Current memory usage, active connections (can go up/down)
-- **Histograms**: Request duration distribution, image size buckets
-- **Summaries**: Latency percentiles (p50, p95, p99)
+# Image conversion logs
+{container="msvc-image-svc"} |= "Broadway"
 
-**3. Prometheus → Scraping (PULL Model)**
-
-Unlike logs and traces (which are pushed), Prometheus **pulls** metrics:
-
-- Every 15 seconds, Prometheus scrapes `GET /metrics` from each service
-- PromEx exposes this endpoint via `PromEx.Plug`
-- Returns plain text in Prometheus format:
-
-```text
-# TYPE http_requests_total counter
-http_requests_total{method="POST",route="/email_svc/send_email/v1"} 1523
-
-# TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{le="0.1"} 1200
-http_request_duration_seconds_bucket{le="0.5"} 1500
+# Logs for specific trace
+{container=~"msvc-.*"} | json | trace_id="abc123"
 ```
 
-**4. Prometheus → Grafana (Query & Visualization)**
+### Metrics (Prometheus + PromEx)
 
-Grafana queries Prometheus using PromQL to create dashboards:
+**Purpose**: Time-series metrics for performance analysis
 
-- Time-series graphs: CPU usage over time
-- Rate calculations: Requests per second
-- Aggregations: P95 latency across all services
-- Alerts: Memory usage > 80%
+**Model**: PULL (Prometheus scrapes /metrics endpoints)
+
+**Format**: Plain text (key=value pairs)
+
+**Storage**: Prometheus TSDB (time-series database)
+
+**Access**: Grafana dashboards (pre-built with PromEx)
+
+**Flow**:
 
 ```mermaid
 flowchart LR
-    Code[Code<br>+ Libraries]
-    Telemetry[Erlang :telemetry<br>Event Bus]
-    PromEx[PromEx<br>Metrics Exporter]
-    Endpoint["/metrics" endpoint<br>Plain Text]
-    Prometheus[Prometheus<br>Time Series DB]
-    Grafana[Grafana<br>Dashboards]
-
-    Code -->|emit events| Telemetry
-    Telemetry -->|subscribe| PromEx
-    PromEx -->|expose| Endpoint
-    Endpoint -->|GET every 15s<br>PULL model| Prometheus
-    Prometheus -->|PromQL queries| Grafana
+    Code[Code<br> Libraries] -->|emit events| Telemetry[Erlang telemetry]
+    Telemetry -->|subscribe| PromEx[PromEx<br>Metrics Exporter]
+    PromEx -->|expose| Endpoint[/metrics endpoint]
+    Endpoint -->|GET every 15s<br>PULL| Prometheus
+    Prometheus -->|PromQL| Grafana
 ```
 
-### Key Differences from Logs & Traces
+**PromEx configuration** ([apps/user_svc/lib/user_svc/prom_ex.ex](apps/user_svc/lib/user_svc/prom_ex.ex)):
 
-- **Model**: PULL (Prometheus scrapes) vs PUSH (logs/traces sent actively)
-- **Format**: Plain text `key=value` pairs vs JSON/Protobuf
-- **Storage**: Time-series database optimized for aggregations
-- **Purpose**: Quantitative trends over time vs individual events/requests
+```elixir
+defmodule UserService.PromEx do
+  use PromEx, otp_app: :user_svc
 
-## PromEx Configuration and Dashboards
+  @impl true
+  def plugins do
+    [
+      PromEx.Plugins.Application,  # Uptime, version
+      PromEx.Plugins.Beam,          # VM metrics (memory, processes)
+      PromEx.Plugins.Phoenix        # HTTP request metrics
+    ]
+  end
 
-As described in the [Metrics pipeline](#metrics-pipeline) section above, PromEx converts `:telemetry` events into Prometheus metrics. This section covers the practical configuration and dashboard setup.
+  @impl true
+  def dashboard_assigns do
+    [
+      datasource_id: "prometheus",
+      default_selected_interval: "30s"
+    ]
+  end
+end
+```
 
-We setup two custom plugins and each has its own Grafana dashboard:
+**Custom metrics plugin** (OS monitoring):
 
-- One to monitor the OS metrics using `Polling.build()`,
-- and one to monitor the Image conversion process using `Event.build()`.
+```elixir
+defmodule UserService.PromEx.Plugins.OsMetrics do
+  use PromEx.Plugin
 
-Example of OS metrics (via `OS MON`) Promex Grafana dashboard:
+  @impl true
+  def polling_metrics(opts) do
+    poll_rate = Keyword.get(opts, :poll_rate, 5_000)
 
-<img src="https://github.com/ndrean/micro_ex/blob/main/priv/cust-promex.png" alt="os-dashboard">
+    Polling.build(
+      :os_metrics_polling_events,
+      poll_rate,
+      {__MODULE__, :execute_metrics, []},
+      [
+        last_value("user_svc.os.cpu_utilization",
+          event_name: [:user_svc, :os, :cpu],
+          measurement: :utilization,
+          description: "CPU utilization percentage"
+        ),
+        last_value("user_svc.os.memory_utilization",
+          event_name: [:user_svc, :os, :memory],
+          measurement: :utilization,
+          description: "Memory utilization percentage"
+        )
+      ]
+    )
+  end
 
-### Datasource Configuration
+  def execute_metrics do
+    cpu = :cpu_sup.util() |> List.first()
+    {total_mem, alloc_mem, _} = :memsup.get_memory_data()
+    mem_percent = (alloc_mem / total_mem) * 100
 
-For PromEx dashboards to work correctly, the datasource identifier must match across three locations:
+    :telemetry.execute([:user_svc, :os, :cpu], %{utilization: cpu}, %{})
+    :telemetry.execute([:user_svc, :os, :memory], %{utilization: mem_percent}, %{})
+  end
+end
+```
 
-1. **Grafana datasource definition** ([o11y_configs/grafana/provisioning/datasources/datasources.yml:6](o11y_configs/grafana/provisioning/datasources/datasources.yml#L6)):
+**Dashboard example**:
 
-   ```yaml
-   datasources:
-     - name: Prometheus
-       type: prometheus
-       uid: prometheus  # ← This identifier
-   ```
+![OS metrics dashboard](priv/cust-promex.png)
 
-2. **PromEx dashboard configuration** in each service ([apps/user_svc/lib/user_svc/prom_ex.ex:81](apps/user_svc/lib/user_svc/prom_ex.ex#L81)):
-
-   ```elixir
-   def dashboard_assigns do
-     [
-       datasource_id: "prometheus",  # ← Must match the uid above
-       default_selected_interval: "30s"
-     ]
-   end
-   ```
-
-3. **Dashboard export command** (using the `--datasource` flag):
-
-   ```sh
-   mix prom_ex.gen.config --datasource prometheus
-   ```
-
-**Key points:**
-
-- The `uid` in Grafana's datasource config must match `datasource_id` in PromEx
-- This links exported dashboards to the correct Prometheus datasource
-- Respect Grafana folder structure: _grafana/provisioning/{datasources,dashboards,plugins,notifiers}_
-
-### Generate and Export Dashboards
-
-PromEx provides pre-built Grafana dashboards that visualize metrics from your services. These dashboards are **exported as JSON files** and automatically loaded by Grafana on startup.
-
-**What the commands do:**
-
-1. **`mix prom_ex.gen.config --datasource prometheus`**
-   - Generates PromEx configuration with the specified datasource identifier
-   - Ensures your service's metrics queries use the correct Prometheus datasource
-
-2. **`mix prom_ex.dashboard.export`**
-   - Exports PromEx's built-in dashboard templates as JSON files
-   - Available dashboards:
-     - `application.json` - Application metrics (uptime, version, dependencies)
-     - `beam.json` - Erlang VM metrics (processes, memory, schedulers)
-     - `phoenix.json` - Phoenix framework metrics (requests, response times)
-   - The JSON files are saved to `o11y_configs/grafana/dashboards/`
-
-3. **Grafana auto-loads these dashboards** via the provisioning config ([o11y_configs/grafana/provisioning/dashboards/dashboards.yml:13](o11y_configs/grafana/provisioning/dashboards/dashboards.yml#L13)):
-
-   ```yaml
-   options:
-     path: /var/lib/grafana/dashboards  # Grafana reads JSON files from this directory
-   ```
-
-**Example commands:**
+**Exporting dashboards**:
 
 ```sh
-# Generate config for a single service
-cd apps/user_svc
+# Generate PromEx config
 mix prom_ex.gen.config --datasource prometheus
-mix prom_ex.dashboard.export --dashboard application.json --module UserSvc.PromEx --file_path ../../o11y_configs/grafana/dashboards/user_svc_application.json
+
+# Export dashboard to JSON
+mix prom_ex.dashboard.export \
+  --dashboard application.json \
+  --module UserService.PromEx \
+  --file_path ../../o11y_configs/grafana/dashboards/user_svc_application.json
 
 # Batch export for all services
-for service in job_svc image_svc email_svc client_svc; do
+for service in user_svc image_svc email_svc client_svc; do
   cd apps/$service
-  mix prom_ex.dashboard.export --dashboard application.json --module "$(echo $service | sed 's/_\([a-z]\)/\U\1/g' | sed 's/^./\U&/').PromEx" --stdout > ../../o11y_configs/grafana/dashboards/${service}_application.json
-  mix prom_ex.dashboard.export --dashboard beam.json --module "$(echo $service | sed 's/_\([a-z]\)/\U\1/g' | sed 's/^./\U&/').PromEx" --stdout > ../../o11y_configs/grafana/dashboards/${service}_beam.json
+  mix prom_ex.dashboard.export --dashboard beam.json --module "${service^}.PromEx" \
+    --stdout > ../../o11y_configs/grafana/dashboards/${service}_beam.json
   cd ../..
 done
 ```
 
-**Result:** Each service gets its own dashboard in Grafana showing application and BEAM VM metrics.
+### Dashboards (Grafana)
 
-The sources at the end are a good source of explanation on how to do this.
+**Purpose**: Unified visualization for traces, logs, and metrics
 
-## COCOMO Complexity Analysis of this project
+**Access**: http://localhost:3000 (admin/admin)
 
-Curious about the effort required to build this?  COCOMO (Constructive Cost Model) ⏯️ <https://en.wikipedia.org/wiki/COCOMO> is a standard software engineering metric.
-We used the implementation: <https://github.com/boyter/scc> to generate the table below.
+**Datasources**:
+- Prometheus (metrics)
+- Loki (logs)
+- Jaeger (traces)
+
+**Key dashboards**:
+- **Application**: Service health, uptime, dependencies
+- **BEAM VM**: Erlang processes, memory, schedulers
+- **Phoenix**: HTTP requests, response times, error rates
+- **Custom**: OS metrics, image conversion metrics
+
+**Dashboard provisioning** ([o11y_configs/grafana/provisioning/dashboards/dashboards.yml](o11y_configs/grafana/provisioning/dashboards/dashboards.yml)):
+
+```yaml
+apiVersion: 1
+
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards  # JSON files auto-loaded from here
+```
+
+**Correlating observability data**:
+
+1. **Start in Grafana metrics**: Identify high latency spike
+2. **Drill down to logs**: Filter by service and timestamp
+3. **Find trace ID in logs**: `trace_id=abc123`
+4. **Jump to Jaeger**: View full distributed trace
+5. **Identify bottleneck**: Slowest span in trace
+
+---
 
 ## Production Considerations
 
-**Observability scales horizontally, not per-service**:
+### Scaling Strategies
 
-- Prometheus scrapes 5 or 500 services equally well
-- 1oki aggregates logs from 5 or 5000 pods
-- Jaeger traces 5 or 50 microservices
-
-**Scaling the Image Conversion Service**:
-
-The observability stack revealed that image conversion is the bottleneck (CPU-bound). How to scale?
-
-**Practical scaling approach** (in order of implementation):
-
-1. **Scale Image service horizontally** (simplest, immediate impact):
-   - Add more Image service instances behind a load balancer
-   - Job service distributes conversion requests across instances
+**Image Service** (CPU-bound bottleneck):
+1. **Horizontal scaling**: Add more Image service instances
+   - Load balancer distributes NATS consumers
+   - Broadway handles parallel processing automatically
    - No code changes needed
 
-**What you DON'T need** (for this use case):
+2. **Vertical scaling**: Increase CPU/memory per instance
+   - Tune Broadway concurrency settings
+   - Adjust ImageMagick thread count
 
-- **Service mesh**: Doesn't improve conversion throughput. The system doesn't need mTLS between 5 internal services or advanced traffic routing.
+**Broadway tuning** (based on workload):
 
-**Result**: Horizontal scaling of Image service instances directly addresses the observed bottleneck with minimal complexity.
+```elixir
+# High-throughput (large batches, high parallelism)
+producer: [
+  concurrency: 4,
+  module: {
+    OffBroadway.Jetstream.Producer,
+    max_number_of_messages: 100,
+    receive_interval: 5
+  }
+],
+processors: [
+  im: [concurrency: 16]  # More parallel workers
+]
 
-**Production Optimization**:
+# Low-latency (small batches, fast polling)
+producer: [
+  concurrency: 2,
+  module: {
+    OffBroadway.Jetstream.Producer,
+    max_number_of_messages: 10,
+    receive_interval: 1
+  }
+],
+processors: [
+  im: [concurrency: 4]
+]
+```
 
-- Use managed services (Datadog, New Relic, Grafana Cloud) to eliminate self-hosting
-- Sidecar pattern (Promtail as DaemonSet in K8s) reduces per-pod overhead
-- **Sampling strategies** for traces (10% of traffic vs 100% in dev)
-- **Protocol optimization**:
-  - **logs**: Switch to OTLP/gRPC (port 4317) - 2-5x faster, HTTP/2 multiplexing
-  - **Metrics**: Consider StatsD/UDP (fire-and-forget, non-blocking) for high-volume metrics
-  
-  ```bash
-  OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-  OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-  ```
+### Observability in Production
 
-## Enhancement?
+**Reduce overhead**:
+- **Trace sampling**: 10% of successful requests, 100% of errors
+- **Protocol optimization**: Switch to gRPC (2-5x faster than HTTP)
+- **Log sampling**: Sample verbose logs, keep all errors/warnings
 
-- Safety
-  - enable protected endpoints (Grafana, S3)
-
-- Observability Enhancements
-  - **Alerting rules**:
-    - Prometheus AlertManager for threshold-based alerts
-    - Integrate with PagerDuty/Slack
-
-  - **Log sampling** for production:
-    - Sample 10% of successful requests
-    - Keep 100% of errors/warnings
-
-- **Event sourcing** for audit trail:
-  - Capture all job state transitions as immutable events
-  - Enables replay and debugging of historical workflows
-  - Consider only if compliance requires full audit history
-
-- **Interactive Development Interface**: Currently, you interact with services via `docker exec` remote shells. So a Livebook Integration**.
-
-- Deployment on Debian VPS
-  - Switch from Alpine to Debian-based images for easier debugging
-  
-```mermaid
-architecture-beta
-    service cf(cloud)[CloudFlare]
-    group vps(cloud)[VPS]
-    group o11y(cloud)[O11Y] in vps
-    service gate(cloud)[Gateway Caddy] in vps
-    service lvb(server)[LiveBook] in vps
-    group api(cloud)[API] in vps
-    service services(server)[User Image Email] in api
-    service nats(server)[NATS] in api
-    service miniio(cloud)[S3 Storage] in api
-    service j(server)[Jaeger Grafana Prometheus] in o11y
-
-    cf:R -- L:gate
-    gate:R -- L:lvb
-    lvb:R -- L:services
-    lvb:T -- B:j
-  ```
-
-## Tests
-
-Recommended testing strategy for microservices architectures:
-
-- Static Analysis
-- Unit Tests. Example: Test that `S3.generate_presigned_url/2` returns a valid URL string with correct expiration timestamp
-- Integration Tests (multiple modules working together within a single service, may use real external dependencies. Example: test that `ImageSvc.convert_to_pdf/1` fetches from S3, converts the image, and saves the result back to S3
-- Contract Tests (Service boundaries). Verify that services communicate correctly using the agreed protobuf schemas. Tools like [Pact](https://docs.pact.io/) (consumer-driven contracts). Example: Verify that `job_svc` can successfully decode the `EmailRequest` protobuf message sent by `user_svc`
-- Property-Based Tests (Edge cases). Test that functions hold true for random generated inputs, catching edge cases you didn't think of. Tools: [StreamData](https://hexdocs.pm/stream_data/). Example: Test that `decode(encode(x)) == x` for any randomly generated protobuf struct, ensuring serialization round-trips correctly
-- End-to-End (E2E) Tests. Test complete workflows across all services with real infrastructure (Docker containers). Example: POST a PNG to `client_svc`, verify PDF appears in MinIO, and confirmation email is sent via Swoosh
-- Load/Performance Tests. Measure system behavior under realistic production load. Tools: [K6](https://grafana.com/docs/k6/latest/), [wrk](https://github.com/wg/wrk). Example: Verify the system can handle 1,000 concurrent image conversions without degrading p95 latency below 500ms
-
-### Manual Testing Examples
-
-**Connect to a service container:**
+**Environment config**:
 
 ```sh
-docker exec -it msvc-client-svc bin/client_svc remote
+# Use gRPC for lower latency
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+
+# Sample 10% of traces
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1
+
+# Increase batch size
+OTEL_BSP_MAX_QUEUE_SIZE=4096
+OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
 ```
 
-**Test bulk email sending (1000 concurrent requests):**
+**Managed services** (eliminate self-hosting):
+- Datadog (traces + logs + metrics)
+- New Relic (full observability suite)
+- Grafana Cloud (managed Loki/Prometheus/Tempo)
 
+### Security
+
+**Production checklist**:
+- [ ] Enable authentication for Grafana, MinIO, Jaeger
+- [ ] Use TLS for all service communication
+- [ ] Rotate S3 access keys
+- [ ] Implement API rate limiting
+- [ ] Add input validation and sanitization
+- [ ] Use secrets management (Vault, AWS Secrets Manager)
+
+### Reliability
+
+**Message durability** (JetStream):
+- File-based storage (survives NATS restart)
+- Consumer acknowledgments (at-least-once delivery)
+- Automatic retries with exponential backoff
+
+**Error handling** (Broadway):
 ```elixir
-iex(client_svc@container)>
-  Task.async_stream(
-    1..1000
-    fn i -> Email.create(i) end, 
-    max_concurrency: 10, 
-    ordered: false
-    )
-  |> Stream.run()
+# NACK message on error (will be retried)
+def handle_message(:im, msg, _ctx) do
+  case process_image(msg.data) do
+    {:ok, result} ->
+      msg  # ACK (success)
+
+    {:error, :transient_error} ->
+      Broadway.Message.failed(msg, :transient)  # NACK + retry
+
+    {:error, :permanent_error} ->
+      # Send to dead letter queue
+      publish_to_dlq(msg)
+      msg  # ACK (don't retry)
+  end
+end
 ```
 
-**Test image conversion with generated test image:**
+---
 
+## Testing Strategy
+
+### Test Pyramid
+
+1. **Unit Tests** (fast, isolated)
+   ```elixir
+   test "S3.generate_presigned_url/2 returns valid URL" do
+     url = S3.generate_presigned_url("bucket", "key.pdf")
+     assert String.starts_with?(url, "http://")
+     assert String.contains?(url, "X-Amz-Expires")
+   end
+   ```
+
+2. **Integration Tests** (within service)
+   ```elixir
+   test "ImageSvc.convert_to_pdf/1 streams from S3" do
+     {:ok, pdf_binary} = ImageSvc.convert_to_pdf(%{
+       source: {:s3_ref, %{bucket: "test", key: "image.png"}},
+       format: "png"
+     })
+
+     assert byte_size(pdf_binary) > 0
+     assert String.starts_with?(pdf_binary, "%PDF-")
+   end
+   ```
+
+3. **Contract Tests** (service boundaries)
+   ```elixir
+   test "user_svc and image_svc agree on protobuf schema" do
+     request = %Mcsv.V3.ImageConversionRequest{user_id: "123", ...}
+     binary = Mcsv.V3.ImageConversionRequest.encode(request)
+
+     # Simulate sending over NATS
+     decoded = Mcsv.V3.ImageConversionRequest.decode(binary)
+
+     assert decoded.user_id == "123"
+   end
+   ```
+
+4. **Property-Based Tests** (edge cases)
+   ```elixir
+   use ExUnitProperties
+
+   property "protobuf encoding round-trips correctly" do
+     check all user_id <- string(:alphanumeric),
+               email <- email_address() do
+       request = %Mcsv.V3.ImageConversionRequest{
+         user_id: user_id,
+         user_email: email
+       }
+
+       binary = Mcsv.V3.ImageConversionRequest.encode(request)
+       decoded = Mcsv.V3.ImageConversionRequest.decode(binary)
+
+       assert decoded == request
+     end
+   end
+   ```
+
+5. **E2E Tests** (full workflows)
+   ```elixir
+   test "end-to-end image conversion workflow" do
+     # Start all services in Docker
+     # POST image to client_svc
+     # Verify PDF appears in MinIO
+     # Verify confirmation email sent
+     # Verify trace in Jaeger
+   end
+   ```
+
+6. **Load Tests** (performance)
+   ```sh
+   # Using k6
+   k6 run --vus 100 --duration 30s load_test.js
+   ```
+
+### Manual Testing
+
+**Connect to service**:
+```sh
+docker-compose -f docker-compose-all.yml exec user_svc bin/user_svc remote
+```
+
+**Test bulk email sending**:
 ```elixir
-iex(client_svc@container)>
-  File.cd!("lib/client_svc-0.1.0/priv")
-  {:ok, img} = Vix.Vips.Operation.worley(5000, 5000)
-  :ok = Vix.Vips.Image.write_to_file(img, "big-test.png")
-  Image.convert_png("big-test.png", "test@example.com")
+iex> Task.async_stream(1..1000, fn i ->
+  Email.create("user#{i}@example.com", "User #{i}")
+end, max_concurrency: 10, ordered: false)
+|> Stream.run()
 ```
 
-**Load test (sustained throughput):**
-
+**Test image conversion**:
 ```elixir
-iex(client_svc@container)>
-  Stream.interval(100)  # Every 100ms
-  |> Stream.take(1200)  # 2 minutes worth
-  |> Task.async_stream(
-    fn i -> 
-      Image.convert_png("test.png", "user#{i}@example.com")
-    end,
-    max_concurrency: 10,
-    ordered: false
-  )
-  |> Stream.run()
+iex> {:ok, img} = Vix.Vips.Operation.worley(5000, 5000)
+iex> Vix.Vips.Image.write_to_file(img, "test.png")
+iex> Image.convert_png("test.png", "user@example.com")
 ```
 
-These manual tests generate real load that can be observed in Grafana dashboards (see [Observability](#observability) section)
+**Load test** (sustained throughput):
+```elixir
+iex> Stream.interval(100)  # Every 100ms
+|> Stream.take(1200)  # 2 minutes
+|> Task.async_stream(fn i ->
+  Image.convert_png("test.png", "user#{i}@example.com")
+end, max_concurrency: 10, ordered: false)
+|> Stream.run()
+```
+
+---
 
 ## Sources
 
-<https://www.curiosum.com/blog/grafana-and-promex-with-phoenix-app>
+### Broadway & GenStage
+- [Broadway documentation](https://hexdocs.pm/broadway/)
+- [GenStage documentation](https://hexdocs.pm/gen_stage/)
+- [OffBroadway.Jetstream](https://hexdocs.pm/off_broadway_jetstream/)
 
-<https://dockyard.com/blog/2023/09/12/building-your-own-prometheus-metrics-with-promex>
+### NATS JetStream
+- [NATS JetStream documentation](https://docs.nats.io/nats-concepts/jetstream)
+- [gnat Elixir client](https://github.com/nats-io/nats.ex)
 
-<https://dockyard.com/blog/2023/10/03/building-your-own-prometheus-metrics-with-promex-part-2>
+### OpenTelemetry
+- [OpenTelemetry Elixir SDK](https://hexdocs.pm/opentelemetry/)
+- [OpenTelemetry Phoenix](https://hexdocs.pm/opentelemetry_phoenix/)
+- [Span links documentation](https://opentelemetry.io/docs/specs/otel/trace/api/#link)
 
-<https://hexdocs.pm/prom_ex/telemetry.html>
+### Observability
+- [PromEx](https://hexdocs.pm/prom_ex/)
+- [Building Prometheus metrics with PromEx](https://dockyard.com/blog/2023/09/12/building-your-own-prometheus-metrics-with-promex)
+- [Grafana and PromEx with Phoenix](https://www.curiosum.com/blog/grafana-and-promex-with-phoenix-app)
+
+### Protobuf
+- [Elixir Protobuf](https://github.com/elixir-protobuf/protobuf)
+- [Sharing Protobuf schemas across services](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/)
+
+---
+
+## License
+
+MIT
+
+## Contributing
+
+Pull requests welcome! Please ensure:
+- Tests pass (`mix test`)
+- Code formatted (`mix format`)
+- Dialyzer clean (`mix dialyzer`)
+- Documentation updated

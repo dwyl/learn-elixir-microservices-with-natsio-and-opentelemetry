@@ -6,6 +6,36 @@ import Config
 # HTTP Port
 port = System.get_env("CLIENT_SVC_PORT", "8085") |> String.to_integer()
 
+expiry_bucket_retention =
+  System.get_env("IMAGE_BUCKET_MAX_AGE", "3600") |> String.to_integer()
+
+image_bucket =
+  System.get_env("IMAGE_BUCKET", "msvc-images")
+
+access_key_id =
+  System.get_env("MINIO_ROOT_USER", "minioadmin")
+
+secret_access_key =
+  System.get_env("MINIO_ROOT_PASSWORD", "minioadmin")
+
+object_storage_endpoint =
+  System.get_env("MINIO_ENDPOINT", "http://127.0.0.1:9000")
+
+region =
+  System.get_env("AWS_REGION", "us-east-1")
+
+nats_host =
+  System.get_env("NATS_HOST", "localhost")
+
+nats_port =
+  System.get_env("NATS_PORT", "4222") |> String.to_integer()
+
+otel_exporter_otlp_protocol =
+  System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http")
+
+otel_exporter_otlp_endpoint =
+  System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
 config :client_svc, ClientServiceWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
@@ -19,23 +49,20 @@ config :client_svc, ClientServiceWeb.Endpoint,
   secret_key_base: "lSELLkV2qXzO3PbrZjubtnS84cvDgItzZ3cuQMlmRrM/f5Iy0YHJgn/900qLm7/a"
 
 config :client_svc,
-  port: port,
-  # Use USER_SVC_URL from docker-compose (http://user_svc:8081) or fallback to localhost for dev
-  user_svc_base_url:
-    System.get_env("USER_SVC_URL", "http://127.0.0.1:#{System.get_env("USER_SVC_PORT", "8081")}"),
-  user_endpoints: %{
-    create: "/user_svc/create_email/v1",
-    convert_image: "/user_svc/convert_image/v1"
-  }
+  port: port
+
+config :client_svc, :s3,
+  object_storage_endpoint: object_storage_endpoint,
+  image_bucket: image_bucket
 
 config :client_svc, :nats,
-  host: System.get_env("NATS_HOST", "nats-server"),
-  port: System.get_env("NATS_PORT", "4222") |> String.to_integer()
+  host: nats_host,
+  port: nats_port
 
 # Determine OTLP protocol from environment variable
 # Options: "http" (default) or "grpc" (production)
 otlp_protocol =
-  case System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http") do
+  case otel_exporter_otlp_protocol do
     "grpc" ->
       :grpc
 
@@ -48,7 +75,7 @@ otlp_protocol =
   end
 
 otlp_endpoint =
-  case System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  case otel_exporter_otlp_endpoint do
     nil -> "http://127.0.0.1:4318"
     endpoint -> endpoint
   end

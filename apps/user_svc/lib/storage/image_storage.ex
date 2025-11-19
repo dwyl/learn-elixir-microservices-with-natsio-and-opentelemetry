@@ -15,17 +15,59 @@ defmodule ImageStorage do
 
   require Logger
 
+  defp bucket do
+    Application.get_env(:user_svc, :s3)
+    |> Keyword.get(:image_bucket, "msvc-images")
+  end
+
+  defp expiry_bucket_retention do
+    Application.get_env(:user_svc, :s3)
+    |> Keyword.get(:expiry_bucket_retention, 3600)
+  end
+
+  defp access_key_id do
+    Application.get_env(:user_svc, :s3)
+    |> Keyword.get(:access_key_id, "minioadmin")
+  end
+
+  defp secret_access_key do
+    Application.get_env(:user_svc, :s3)
+    |> Keyword.get(:secret_access_key, "minioadmin")
+  end
+
+  defp object_storage_endpoint do
+    Application.get_env(:user_svc, :s3)
+    |> Keyword.get(:object_storage_endpoint, "http://localhost:9000")
+  end
+
   @doc """
-  Store image in MinIO and return storage_id.
+  Store image in MinIO.
   """
-  def store(image_binary, job_id, user_id, format \\ "png") when is_binary(image_binary) do
-    case Storage.store(image_binary, job_id, user_id, format) do
-      {:ok, {job_id, url, size}} ->
+  # request.image_data, request.user_id, format
+  def store(binary, job_id, user_id, user_email, mime) when is_binary(binary) do
+    bucket = bucket()
+
+    opts = [
+      expiry_bucket_retention: expiry_bucket_retention(),
+      object_storage_endpoint: object_storage_endpoint(),
+      access_key_id: access_key_id(),
+      secret_access_key: secret_access_key(),
+      user_id: user_id,
+      user_email: user_email
+    ]
+
+    case ReqS3Storage.store(binary, bucket, job_id, mime, opts) do
+      {:ok, %{presigned_url: url, size: size, key: _key}} ->
         Logger.info(
           "[User][ImageStorage] Stored #{job_id} for user #{user_id} (#{size} bytes) at #{url}"
         )
 
         {:ok, {job_id, url, size}}
+
+      {:error, {:http_error, 403}} ->
+        Logger.error("[User][ImageStorage] Unauthorized to store: #{job_id}")
+        OpenTelemetry.Tracer.set_status(:error, "Storage #{job_id} failed: :unauthorized")
+        {:error, :unauthorized}
 
       {:error, reason} ->
         Logger.error("[User][ImageStorage] Failed to store: #{inspect(reason)}")
@@ -34,52 +76,39 @@ defmodule ImageStorage do
     end
   end
 
-  @doc """
-  Retrieve an image by job_id from MinIO.
+  # def fetch(job_id, opts) do
+  #   case Storage.fetch(job_id, opts) do
+  #     {:ok, binary} ->
+  #       Logger.info("[User][ImageStorage] Retrieved #{job_id} (#{byte_size(binary)} bytes)")
+  #       {:ok, binary}
 
-  Returns {:ok, binary} or {:error, reason}
-  """
-  def fetch(job_id) do
-    case Storage.fetch(job_id) do
-      {:ok, binary} ->
-        Logger.info("[User][ImageStorage] Retrieved #{job_id} (#{byte_size(binary)} bytes)")
-        {:ok, binary}
+  #     {:error, reason} ->
+  #       Logger.error("[User][ImageStorage] Failed to fetch: #{inspect(reason)}")
+  #       {:error, :not_found}
+  #   end
+  # end
 
-      {:error, reason} ->
-        Logger.error("[User][ImageStorage] Failed to fetch: #{inspect(reason)}")
-        {:error, :not_found}
-    end
-  end
+  # def get_presigned_url(job_id, opts) do
+  #   try do
+  #     url = ReqS3Storage.generate_presigned_url(job_id, opts)
+  #     Logger.debug("[User][ImageStorage] Generated presigned URL for #{job_id}")
+  #     {:ok, url}
+  #   rescue
+  #     error ->
+  #       Logger.warning("[User][ImageStorage] Failed to generate presigned URL: #{inspect(error)}")
+  #       {:error, :not_found}
+  #   end
+  # end
 
-  @doc """
-  Get a presigned URL for a storage_id.
+  # def delete(job_id, opts) do
+  #   case Storage.delete(job_id, opts) do
+  #     :ok ->
+  #       Logger.info("[User][ImageStorage] Deleted #{job_id}")
+  #       :ok
 
-  Generates a fresh presigned URL each time (they expire after 1 hour anyway).
-  """
-  def get_presigned_url(job_id) do
-    try do
-      url = Storage.generate_presigned_url(job_id)
-      Logger.debug("[User][ImageStorage] Generated presigned URL for #{job_id}")
-      {:ok, url}
-    rescue
-      error ->
-        Logger.warning("[User][ImageStorage] Failed to generate presigned URL: #{inspect(error)}")
-        {:error, :not_found}
-    end
-  end
-
-  @doc """
-  Delete an image from MinIO storage (called after conversion is complete).
-  """
-  def delete(job_id) do
-    case Storage.delete(job_id) do
-      :ok ->
-        Logger.info("[User][ImageStorage] Deleted #{job_id}")
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("[User][ImageStorage] Failed to delete #{job_id}: #{inspect(reason)}")
-        {:error, :not_found}
-    end
-  end
+  #     {:error, reason} ->
+  #       Logger.warning("[User][ImageStorage] Failed to delete #{job_id}: #{inspect(reason)}")
+  #       {:error, :not_found}
+  #   end
+  # end
 end

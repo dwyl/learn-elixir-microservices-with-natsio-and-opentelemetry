@@ -5,7 +5,8 @@ Mix.install([
   {:vix, "~> 0.35.0"},
   {:req, "~> 0.5.16"},
   {:kino, "~> 0.17.0"},
-  {:gnat, "~> 1.11"}
+  {:gnat, "~> 1.11"},
+  {:ex_image_info, "~> 1.0"}
 ])
 ```
 
@@ -30,7 +31,7 @@ Kino.Layout.grid([
 Node.set_cookie(:msvc_dev_cookie_change_in_production)
 
 services_map = %{
-  client: :"client_svc@client_svc.msvc", 
+  client: :"client_svc@client_svc.msvc",
   user: :"user_svc@user_svc.msvc",
   email: :"email_svc@email_svc.msvc",
   image: :"image_svc@image_svc.msvc",
@@ -40,9 +41,9 @@ results =
   Map.values(services_map)
   |> Enum.map(fn node ->
       case Node.connect(node) do
-        true -> [{:connected, node}] 
+        true -> [{:connected, node}]
         false ->[ { :failed, node} ]
-        :ignored -> [{:ignored, node}] 
+        :ignored -> [{:ignored, node}]
       end
     end)
 
@@ -79,7 +80,7 @@ defmodule HealthCheck do
         service: name,
         port: port,
         status: status,
-        url: url
+        url: url,
       }
     end)
   end
@@ -96,9 +97,9 @@ Kino.Frame.append(frame, table)
 # Update every 10 seconds
 Stream.interval(30_000)
 |> Stream.take(10)
-|> Kino.animate(fn _-> 
+|> Kino.animate(fn _->
   health = HealthCheck.check_all()
-  Kino.DataTable.update(table, health) 
+  Kino.DataTable.update(table, health)
   Kino.Frame.render(frame, table)
 end)
 
@@ -133,7 +134,7 @@ Kino.Frame.append(frame, table)
 
 Stream.interval(30_000)
 |> Stream.take(10)
-|> Kino.animate(fn _-> 
+|> Kino.animate(fn _->
   #health = HealthCheck.check_all()
   Kino.DataTable.update(table, NodeInfo.check(services_map))
   Kino.Frame.render(frame, table)
@@ -157,7 +158,7 @@ create.(1, :notification)
 #### Hammer the services via the Email flow
 
 ```elixir
-up_to = 500
+up_to = 50
 
 Enum.to_list(1..up_to)
 |> Task.async_stream(
@@ -190,17 +191,37 @@ iframe_html = """
 #### Create a small image:
 
 ```elixir
-{:ok, img} = Vix.Vips.Operation.worley(1000, 1000)
+{:ok, img} = Vix.Vips.Operation.xyz(1_000, 1_000)
+{:ok, img} = Vix.Vips.Operation.colourspace(img, :VIPS_INTERPRETATION_LCH)
 {:ok, bin_png}  = Vix.Vips.Image.write_to_buffer(img, ".png")
+
+img
 ```
 
 #### Test the image flow
 
 ```elixir
 user_email = fn i -> "user_#{i}@com" end
-  
-convert = fn bin, email -> 
-  :erpc.call(fqdn_client, Image, :convert_png, [bin, email])
+
+convert = fn bin, email ->
+  :erpc.call(fqdn_client, Image, :convert_bin, [bin, email])
+end
+
+convert.(bin_png, user_email.(1))
+```
+
+```elixir
+{:ok, big_img} = Vix.Vips.Operation.xyz(5_000, 5_000)
+{:ok, big_img} = Vix.Vips.Operation.colourspace(big_img, :VIPS_INTERPRETATION_LCH)
+{:ok, big_png}  = Vix.Vips.Image.write_to_buffer(big_img, ".png")
+{ExImageInfo.info(big_png), byte_size(big_png)}
+```
+
+```elixir
+user_email = fn i -> "user_#{i}@com" end
+
+convert = fn bin, email ->
+  :erpc.call(fqdn_client, Image, :convert_bin, [bin, email])
 end
 
 convert.(bin_png, user_email.(1))
@@ -214,7 +235,7 @@ Then check Jaeger and the Grafana dashboards
 
 ```elixir
 int = 100
-nb = 500
+nb = 5
 
 Stream.interval(int)
 |> Stream.take(nb)
@@ -229,7 +250,7 @@ Stream.interval(int)
 Then check Jaeger and the Grafana dashboards
 
 ```elixir
-1..500
+1..5
 |> Enum.to_list()
 |> Stream.take(nb)
 |> Task.async_stream(fn i -> convert.(bin_png, user_email.(i)) end,
@@ -252,15 +273,15 @@ result_frame = Kino.Frame.new()
 
 node_selector
 |> Kino.Control.stream()
-|> Kino.listen(fn evt -> 
-  node = Map.get(services_map, evt.value) 
+|> Kino.listen(fn evt ->
+  node = Map.get(services_map, evt.value)
   if node do
     # Get process information
     process_count = :erpc.call(node, :erlang, :system_info, [:process_count])
     memory = :erpc.call(node, :erlang, :memory, [])
     memory_mb = (memory[:total] / 1024 / 1024) |> Float.round(2)
 
-    
+
 
     info_md = """
     ### Node: #{node}
@@ -275,10 +296,10 @@ node_selector
 
     Kino.Frame.render(result_frame, Kino.Markdown.new(info_md))
   end
-  
-  
+
+
 end)
-  
+
 
 #inspect_button
 

@@ -1,4 +1,4 @@
-defmodule ImageSvc.MixProject do
+defmodule ImageService.MixProject do
   use Mix.Project
 
   def project do
@@ -34,7 +34,7 @@ defmodule ImageSvc.MixProject do
           opentelemetry_exporter: :permanent,
           opentelemetry: :temporary
         ],
-        # include_erts: true,
+        include_erts: true,
         include_executables_for: [:unix]
         # steps: [:assemble, &Bakeware.assemble/1],
         # compiler_options: [
@@ -55,7 +55,6 @@ defmodule ImageSvc.MixProject do
       extra_applications: [
         :logger,
         :os_mon,
-        # :inets,
         :tls_certificate_check
       ],
       mod: {ImageService.Application, []}

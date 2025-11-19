@@ -5,6 +5,18 @@ import Config
 # HTTP Port
 port = System.get_env("EMAIL_SVC_PORT", "8083") |> String.to_integer()
 
+nats_host =
+  System.get_env("NATS_HOST", "localhost")
+
+nats_port =
+  System.get_env("NATS_PORT", "4222") |> String.to_integer()
+
+otel_exporter_otlp_protocol =
+  System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http")
+
+otel_exporter_otlp_endpoint =
+  System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
 config :email_svc, EmailServiceWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
@@ -20,10 +32,14 @@ config :email_svc, EmailServiceWeb.Endpoint,
 config :email_svc,
   port: port
 
+config :email_svc, :nats,
+  host: nats_host,
+  port: nats_port
+
 # Determine OTLP protocol from environment variable
 # Options: "http" (default) or "grpc" (production)
 otlp_protocol =
-  case System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http") do
+  case otel_exporter_otlp_protocol do
     "grpc" ->
       :grpc
 
@@ -36,7 +52,7 @@ otlp_protocol =
   end
 
 otlp_endpoint =
-  case System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  case otel_exporter_otlp_endpoint do
     nil -> "http://127.0.0.1:4318"
     endpoint -> endpoint
   end

@@ -1,4 +1,4 @@
-defmodule UserSvcWeb.Endpoint do
+defmodule UserServiceWeb.Endpoint do
   @moduledoc """
   The Promex.Plug is added before Plug.Telemetry to avoid self-instrumentation.
 
@@ -9,7 +9,7 @@ defmodule UserSvcWeb.Endpoint do
 
   use Phoenix.Endpoint, otp_app: :user_svc
 
-  plug(PromEx.Plug, prom_ex_module: UserSvc.PromEx)
+  plug(PromEx.Plug, prom_ex_module: UserService.PromEx)
 
   # Request ID for distributed tracing correlation
   plug(Plug.RequestId)
@@ -25,5 +25,5 @@ defmodule UserSvcWeb.Endpoint do
   # HEAD request support (OPTIONS/HEAD for health checks)
   plug(Plug.Head)
 
-  plug(UserSvcWeb.Router)
+  plug(UserServiceWeb.Router)
 end

@@ -23,8 +23,12 @@ defmodule Storage.MixProject do
     [
       {:ex_aws, "~> 2.5"},
       {:ex_aws_s3, "~> 2.5"},
+      {:req, "~> 0.5"},
+      {:req_s3, "~> 0.2"},
       {:opentelemetry_api, "~> 1.4"},
-      {:opentelemetry, "~> 1.5"}
+      {:opentelemetry, "~> 1.5"},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 end

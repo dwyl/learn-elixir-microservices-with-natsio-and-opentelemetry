@@ -1,4 +1,4 @@
-defmodule UserSvc.MixProject do
+defmodule UserService.MixProject do
   use Mix.Project
 
   def project do
@@ -24,7 +24,7 @@ defmodule UserSvc.MixProject do
           opentelemetry_exporter: :permanent,
           opentelemetry: :temporary
         ],
-        # include_erts: true,
+        include_erts: true,
         include_executables_for: [:unix]
         # steps: [:assemble, &Bakeware.assemble/1],
         # compiler_options: [
@@ -60,7 +60,7 @@ defmodule UserSvc.MixProject do
         :os_mon,
         :tls_certificate_check
       ],
-      mod: {UserSvc.Application, []}
+      mod: {UserService.Application, []}
     ]
   end
 
@@ -70,8 +70,8 @@ defmodule UserSvc.MixProject do
       {:libcluster, "~> 3.5"},
       {:phoenix, "~> 1.8.1"},
       {:bandit, "~> 1.8"},
-      {:plug, "~> 1.18"},
-      {:req, "~> 0.5.15"},
+      # {:plug, "~> 1.18"},
+      {:ex_image_info, "~> 1.0"},
       {:gnat, "~> 1.11.1"},
       {:jetstream, "~> 0.0.9"},
 
@@ -82,10 +82,13 @@ defmodule UserSvc.MixProject do
       {:otel_nats, path: "../../libs/otel_nats"},
 
       # S3/MinIO client
-      {:ex_aws, "~> 2.5"},
-      {:ex_aws_s3, "~> 2.5"},
-      {:hackney, "~> 1.20"},
-      {:sweet_xml, "~> 0.7"},
+      {:storage, path: "../../libs/storage"},
+      {:req, "~> 0.5.16"},
+      {:req_s3, "~> 0.2.3"},
+      # {:ex_aws, "~> 2.5"},
+      # {:ex_aws_s3, "~> 2.5"},
+      # {:hackney, "~> 1.20"},
+      # {:sweet_xml, "~> 0.7"},
 
       # OpenTelemetry for distributed tracing
       {:opentelemetry_api, "~> 1.5"},
@@ -110,7 +113,6 @@ defmodule UserSvc.MixProject do
       # static tests
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:credo_naming, "~> 2.1", only: [:dev, :test], runtime: false},
       # test dependencies
       {:yaml_elixir, "~> 2.12", only: :test}
     ]

@@ -1,4 +1,4 @@
-defmodule ImageSvcWeb do
+defmodule ImageServiceWeb do
   @moduledoc false
 
   def router do

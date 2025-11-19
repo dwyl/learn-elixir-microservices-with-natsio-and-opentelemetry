@@ -3,7 +3,7 @@ defmodule HealthController do
   Health check controller for user_svc.
   """
 
-  use UserSvcWeb, :controller
+  use UserServiceWeb, :controller
 
   @doc """
   Health check

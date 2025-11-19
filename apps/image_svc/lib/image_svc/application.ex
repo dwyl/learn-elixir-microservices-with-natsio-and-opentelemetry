@@ -19,12 +19,18 @@ defmodule ImageService.Application do
       # PromEx must start before Repo to capture Ecto init events
       ImageService.PromEx,
       # OpenTelemetry auto-instrumentation (must be first)
-      ImageSvcWeb.Telemetry,
+      ImageServiceWeb.Telemetry,
+      {Task.Supervisor, name: ImageService.TaskSupervisor},
       {Cluster.Supervisor, [topologies(), [name: ImageService.Application.ClusterSupervisor]]},
       {Gnat.ConnectionSupervisor, gnat_supervisor_settings()},
-      {Task, &setup_jetstream/0},
-      ImageSvc.BroadwayImageProcessor,
-      ImageSvcWeb.Endpoint
+      %{
+        id: JetstreamSetup,
+        start: {Task, :start_link, [fn -> setup_jetstream() end]},
+        restart: :transient
+      },
+      Broadway.Images.BinaryToPdf,
+      Broadway.Images.UrlToPdf,
+      ImageServiceWeb.Endpoint
     ]
 
     opts = [strategy: :one_for_one, name: ImageService.Supervisor]

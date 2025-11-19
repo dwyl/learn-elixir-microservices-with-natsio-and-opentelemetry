@@ -37,7 +37,14 @@ defmodule ImageSvc.ConversionOptions do
   end
 
   defp normalize_input_format(""), do: "png"
-  defp normalize_input_format(format), do: format
+
+  defp normalize_input_format(format) do
+    # Handle MIME types like "image/png" -> "png"
+    case String.split(format, "/") do
+      [_type, extension] -> String.downcase(extension)
+      _ -> String.downcase(format)
+    end
+  end
 
   defp normalize_quality(""), do: "medium"
   defp normalize_quality(quality), do: quality

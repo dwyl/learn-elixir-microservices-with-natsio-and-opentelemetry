@@ -70,7 +70,7 @@ defmodule ClientService.PromEx do
       # Plugins.Broadway,
 
       # Custom metrics plugins
-      ClientSvc.OsMetrics.PromExPlugin
+      PromExPlugin.OsMetrics
     ]
   end
 

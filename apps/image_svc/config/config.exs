@@ -11,15 +11,23 @@ config :image_svc, ImageService.PromEx,
   metrics_server: :disabled
 
 # Configure JetStream streams for this service
+# Use "all" in dev to process all messages, "new" in prod to only process new messages
+deliver_policy = if Mix.env() == :prod, do: "new", else: "all"
+
 config :image_svc, :jetstream_streams, [
   %{
     name: "IMAGES",
     subjects: ["image.convert.>"],
     consumers: [
       %{
-        name: "pdf_processor",
-        filter_subject: "image.convert.to_pdf",
-        deliver_policy: "all"
+        name: "binary_to_pdf",
+        filter_subject: "image.convert.binary.to_pdf",
+        deliver_policy: deliver_policy
+      },
+      %{
+        name: "url_to_pdf",
+        filter_subject: "image.convert.url.to_pdf",
+        deliver_policy: deliver_policy
       }
     ]
   }
@@ -31,7 +39,7 @@ config :opentelemetry,
   traces_exporter: :otlp,
   resource: %{service: "image_svc"}
 
-config :opentelemetry_ecto, :tracer, repos: [ImageService.Repo]
+# config :opentelemetry_ecto, :tracer, repos: [ImageService.Repo]
 
 # Add service name to all logs
 config :logger, :default_formatter, metadata: [:service, :span_id, :trace_id]

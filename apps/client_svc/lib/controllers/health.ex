@@ -1,7 +1,9 @@
 defmodule HealthController do
   use ClientServiceWeb, :controller
 
-  @moduledoc false
+  @moduledoc """
+  Health check endpoint for load balancers and orchestration.
+  """
 
   def check(conn, _params) do
     send_resp(conn, 200, "OK")

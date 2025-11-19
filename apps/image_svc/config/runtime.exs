@@ -1,8 +1,42 @@
 import Config
 
-port = System.get_env("IMAGE_SVC_PORT", "8084") |> String.to_integer()
+port =
+  System.get_env("IMAGE_SVC_PORT", "8084") |> String.to_integer()
 
-config :image_svc, ImageSvcWeb.Endpoint,
+loki_chunks =
+  System.get_env("LOKI_CHUNKS", "loki-chunks")
+
+expiry_bucket_retention =
+  System.get_env("IMAGE_BUCKET_MAX_AGE", "3600") |> String.to_integer()
+
+image_bucket =
+  System.get_env("IMAGE_BUCKET", "msvc-images")
+
+access_key_id =
+  System.get_env("MINIO_ROOT_USER", "minioadmin")
+
+secret_access_key =
+  System.get_env("MINIO_ROOT_PASSWORD", "minioadmin")
+
+object_storage_endpoint =
+  System.get_env("MINIO_ENDPOINT", "http://127.0.0.1:9000")
+
+region =
+  System.get_env("AWS_REGION", "us-east-1")
+
+nats_host =
+  System.get_env("NATS_HOST", "localhost")
+
+nats_port =
+  System.get_env("NATS_PORT", "4222") |> String.to_integer()
+
+otel_exporter_otlp_protocol =
+  System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http")
+
+otel_exporter_otlp_endpoint =
+  System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+config :image_svc, ImageServiceWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   url: [host: "localhost"],
   http: [
@@ -15,21 +49,13 @@ config :image_svc, ImageSvcWeb.Endpoint,
   secret_key_base: "lSELLkV2qXzO3PbrZjubtnS84cvDgItzZ3cuQMlmRrM/f5Iy0YHJgn/900qLm7/a"
 
 config :image_svc,
-  port: port,
-  user_svc_base_url:
-    System.get_env("USER_SVC_URL", "http://127.0.0.1:#{System.get_env("USER_SVC_PORT", "8081")}"),
-  user_svc_endpoints: %{
-    store_image: "/user_svc/store_image/v1",
-    notify_user: "/user_svc/notify_user/v1",
-    image_loader: "/user_svc/image_loader/v1"
-  },
-  image_bucket: System.get_env("IMAGE_BUCKET", "msvc-images")
+  image_bucket: image_bucket
 
 # MinIO / S3 Configuration
 config :ex_aws,
-  access_key_id: System.get_env("MINIO_ROOT_USER", "minioadmin"),
-  secret_access_key: System.get_env("MINIO_ROOT_PASSWORD", "minioadmin"),
-  region: System.get_env("AWS_REGION", "us-east-1"),
+  access_key_id: access_key_id,
+  secret_access_key: secret_access_key,
+  region: region,
   json_codec: Jason
 
 config :ex_aws, :s3,
@@ -38,10 +64,24 @@ config :ex_aws, :s3,
   port: System.get_env("MINIO_PORT", "9000") |> String.to_integer(),
   region: System.get_env("AWS_REGION", "us-east-1")
 
+config :image_svc, :s3,
+  object_storage_endpoint: object_storage_endpoint,
+  loki_chunks: loki_chunks,
+  image_bucket: image_bucket,
+  expiry_bucket_retention: expiry_bucket_retention,
+  access_key_id: access_key_id,
+  secret_access_key: secret_access_key,
+  region: region,
+  json_codec: Jason,
+  scheme: System.get_env("MINIO_SCHEME", "http://"),
+  host: System.get_env("MINIO_HOST", "127.0.0.1"),
+  port: System.get_env("MINIO_PORT", "9000") |> String.to_integer(),
+  region: System.get_env("AWS_REGION", "us-east-1")
+
 # Determine OTLP protocol from environment variable------------------------
 # Options: "http" (default) or "grpc" (production)
 otlp_protocol =
-  case System.get_env("OTEL_EXPORTER_OTLP_PROTOCOL", "http") do
+  case otel_exporter_otlp_protocol do
     "grpc" ->
       :grpc
 
@@ -54,7 +94,7 @@ otlp_protocol =
   end
 
 otlp_endpoint =
-  case System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  case otel_exporter_otlp_endpoint do
     nil -> "http://127.0.0.1:4318"
     endpoint -> endpoint
   end
