@@ -108,6 +108,7 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
 - [Microservices with Elixir, NATS JetStream, and Observability](#microservices-with-elixir-nats-jetstream-and-observability)
   - [About NATS.io](#about-natsio)
   - [Running the Demo](#running-the-demo)
+  - [](#)
   - [Table of Contents](#table-of-contents)
   - [Architecture Overview](#architecture-overview)
   - [The Problem](#the-problem)
@@ -168,8 +169,6 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
     - [OpenTelemetry](#opentelemetry)
     - [Observability](#observability)
     - [Protobuf](#protobuf)
-  - [License](#license)
-  - [Contributing](#contributing)
 
 ---
 
@@ -1595,11 +1594,13 @@ done
 **Access**: http://localhost:3000 (admin/admin)
 
 **Datasources**:
+
 - Prometheus (metrics)
 - Loki (logs)
 - Jaeger (traces)
 
 **Key dashboards**:
+
 - **Application**: Service health, uptime, dependencies
 - **BEAM VM**: Erlang processes, memory, schedulers
 - **Phoenix**: HTTP requests, response times, error rates
@@ -1637,6 +1638,7 @@ providers:
 ### Scaling Strategies
 
 **Image Service** (CPU-bound bottleneck):
+
 1. **Horizontal scaling**: Add more Image service instances
    - Load balancer distributes NATS consumers
    - Broadway handles parallel processing automatically
@@ -1679,8 +1681,8 @@ processors: [
 ### Observability in Production
 
 **Reduce overhead**:
+
 - **Trace sampling**: 10% of successful requests, 100% of errors
-- **Protocol optimization**: Switch to gRPC (2-5x faster than HTTP)
 - **Log sampling**: Sample verbose logs, keep all errors/warnings
 
 **Environment config**:
@@ -1700,6 +1702,7 @@ OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
 ```
 
 **Managed services** (eliminate self-hosting):
+
 - Datadog (traces + logs + metrics)
 - New Relic (full observability suite)
 - Grafana Cloud (managed Loki/Prometheus/Tempo)
@@ -1707,6 +1710,7 @@ OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
 ### Security
 
 **Production checklist**:
+
 - [ ] Enable authentication for Grafana, MinIO, Jaeger
 - [ ] Use TLS for all service communication
 - [ ] Rotate S3 access keys
@@ -1717,11 +1721,13 @@ OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
 ### Reliability
 
 **Message durability** (JetStream):
+
 - File-based storage (survives NATS restart)
 - Consumer acknowledgments (at-least-once delivery)
 - Automatic retries with exponential backoff
 
 **Error handling** (Broadway):
+
 ```elixir
 # NACK message on error (will be retried)
 def handle_message(:im, msg, _ctx) do
@@ -1747,6 +1753,7 @@ end
 ### Test Pyramid
 
 1. **Unit Tests** (fast, isolated)
+
    ```elixir
    test "S3.generate_presigned_url/2 returns valid URL" do
      url = S3.generate_presigned_url("bucket", "key.pdf")
@@ -1756,6 +1763,7 @@ end
    ```
 
 2. **Integration Tests** (within service)
+
    ```elixir
    test "ImageSvc.convert_to_pdf/1 streams from S3" do
      {:ok, pdf_binary} = ImageSvc.convert_to_pdf(%{
@@ -1769,6 +1777,7 @@ end
    ```
 
 3. **Contract Tests** (service boundaries)
+
    ```elixir
    test "user_svc and image_svc agree on protobuf schema" do
      request = %Mcsv.V3.ImageConversionRequest{user_id: "123", ...}
@@ -1782,6 +1791,7 @@ end
    ```
 
 4. **Property-Based Tests** (edge cases)
+
    ```elixir
    use ExUnitProperties
 
@@ -1802,6 +1812,7 @@ end
    ```
 
 5. **E2E Tests** (full workflows)
+
    ```elixir
    test "end-to-end image conversion workflow" do
      # Start all services in Docker
@@ -1813,6 +1824,7 @@ end
    ```
 
 6. **Load Tests** (performance)
+
    ```sh
    # Using k6
    k6 run --vus 100 --duration 30s load_test.js
@@ -1821,11 +1833,13 @@ end
 ### Manual Testing
 
 **Connect to service**:
+
 ```sh
 docker-compose -f docker-compose-all.yml exec user_svc bin/user_svc remote
 ```
 
 **Test bulk email sending**:
+
 ```elixir
 iex> Task.async_stream(1..1000, fn i ->
   Email.create("user#{i}@example.com", "User #{i}")
@@ -1834,6 +1848,7 @@ end, max_concurrency: 10, ordered: false)
 ```
 
 **Test image conversion**:
+
 ```elixir
 iex> {:ok, img} = Vix.Vips.Operation.worley(5000, 5000)
 iex> Vix.Vips.Image.write_to_file(img, "test.png")
@@ -1841,6 +1856,7 @@ iex> Image.convert_png("test.png", "user@example.com")
 ```
 
 **Load test** (sustained throughput):
+
 ```elixir
 iex> Stream.interval(100)  # Every 100ms
 |> Stream.take(1200)  # 2 minutes
@@ -1855,38 +1871,31 @@ end, max_concurrency: 10, ordered: false)
 ## Sources
 
 ### Broadway & GenStage
+
 - [Broadway documentation](https://hexdocs.pm/broadway/)
 - [GenStage documentation](https://hexdocs.pm/gen_stage/)
 - [OffBroadway.Jetstream](https://hexdocs.pm/off_broadway_jetstream/)
 
 ### NATS JetStream
+
 - [NATS JetStream documentation](https://docs.nats.io/nats-concepts/jetstream)
 - [gnat Elixir client](https://github.com/nats-io/nats.ex)
 
 ### OpenTelemetry
+
 - [OpenTelemetry Elixir SDK](https://hexdocs.pm/opentelemetry/)
 - [OpenTelemetry Phoenix](https://hexdocs.pm/opentelemetry_phoenix/)
 - [Span links documentation](https://opentelemetry.io/docs/specs/otel/trace/api/#link)
 
 ### Observability
+
 - [PromEx](https://hexdocs.pm/prom_ex/)
 - [Building Prometheus metrics with PromEx](https://dockyard.com/blog/2023/09/12/building-your-own-prometheus-metrics-with-promex)
 - [Grafana and PromEx with Phoenix](https://www.curiosum.com/blog/grafana-and-promex-with-phoenix-app)
 
 ### Protobuf
+
 - [Elixir Protobuf](https://github.com/elixir-protobuf/protobuf)
 - [Sharing Protobuf schemas across services](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/)
 
 ---
-
-## License
-
-MIT
-
-## Contributing
-
-Pull requests welcome! Please ensure:
-- Tests pass (`mix test`)
-- Code formatted (`mix format`)
-- Dialyzer clean (`mix dialyzer`)
-- Documentation updated
