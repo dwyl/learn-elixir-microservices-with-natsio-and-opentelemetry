@@ -18,7 +18,8 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 {
   Node.connect(:"user_svc@user_svc.msvc"),
   Node.connect(:"client_svc@client_svc.msvc"),
-  Node.connect(:"image_svc@image_svc.msvc")
+  Node.connect(:"image_svc_1@image_svc_1.msvc"),
+  Node.connect(:"image_svc_2@image_svc_2.msvc")
 }
 
 ```
@@ -44,6 +45,19 @@ file = Kino.Input.file("add")
 value = Kino.Input.read(file)
 path = Kino.Input.file_path(value.file_ref)
 bin = File.read!(path)
+```
+
+```elixir
+Stream.interval(50)
+|> Stream.take(500)
+|> Task.async_stream(
+  fn i ->
+    :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "user#{i}@com"])
+    end,
+  ordered: false,
+  max_concurrency: 10  
+)
+|> Stream.run()
 ```
 
 ## Upload to S3 via user_svc
@@ -162,6 +176,7 @@ request_binary = Mcsv.V3.ImageConversionRequest.encode(request)
 
 key = upload_result.key
  |> dbg()
+
 
 :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_from_s3, [key, "m@com"])
 # :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "m@com"])

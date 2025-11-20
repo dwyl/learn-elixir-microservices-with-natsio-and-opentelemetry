@@ -31,7 +31,7 @@ defmodule Image do
       )
   """
   def convert_bin(png_binary, user_email, opts \\ []) do
-    Tracer.with_span "image_client.convert_png", %{kind: :client} do
+    Tracer.with_span "image_client.convert_binary", %{kind: :client} do
       Tracer.set_attribute("user.email", user_email)
       png_size = byte_size(png_binary)
       Tracer.set_attribute("image.size_bytes", png_size)

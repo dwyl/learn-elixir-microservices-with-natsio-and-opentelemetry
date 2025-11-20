@@ -16,6 +16,13 @@ This directory contains exported PromEx dashboards for your microservices.
 
 **Available Dashboards:**
 
+**Custom Plugin Dashboards (shared across all services):**
+
+- `os_metrics.json` - OS-level metrics (CPU, memory, load) with service selector
+- `nats_metrics.json` - NATS messaging metrics (pub/sub latency, throughput) with service and topic selectors
+
+**Service-Specific Dashboards (from built-in PromEx plugins):**
+
 - `user_svc_application.json` - Application metrics (uptime, memory, etc.)
 - `user_svc_beam.json` - BEAM VM metrics (processes, schedulers, etc.)
 
@@ -174,3 +181,29 @@ end
 **Panels are empty:**
 - Services need to be running and generating metrics
 - Check Prometheus is configured to scrape your services in `prometheus/prometheus.yml`
+
+## Custom Plugin Dashboards
+
+**Important:** Custom PromEx plugins (`PromExPlugin.OsMetrics`, `PromExPlugin.NatsMetrics`) **cannot** export dashboards via `mix prom_ex.dashboard.export`. Only built-in PromEx plugins (Application, Beam, Phoenix, Ecto, Oban, Broadway) have pre-built dashboard templates.
+
+For custom plugins:
+
+1. **Create dashboards manually** in Grafana UI
+2. **Export as JSON** (Share → Export → Save to file)
+3. **Save to** `o11y_configs/grafana/dashboards/`
+
+### Why Shared Dashboards Work
+
+Because `OsMetrics` and `NatsMetrics` are in `libs/metrics/` (not per-service), all services expose **identical metric names**:
+
+```promql
+# Same metric name across all services
+prom_ex_os_mon_cpu_util
+gnat_message_received_total
+
+# Prometheus adds 'job' label automatically
+prom_ex_os_mon_cpu_util{job="user_svc"}
+prom_ex_os_mon_cpu_util{job="image_svc"}
+```
+
+This allows **one dashboard** with service/topic selectors instead of duplicating dashboards per service.

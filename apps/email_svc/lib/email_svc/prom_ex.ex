@@ -71,7 +71,8 @@ defmodule EmailService.PromEx do
 
       # Add your own PromEx metrics plugins
       # EmailSvc.Users.PromExPlugin
-      PromExPlugin.OsMetrics
+      PromExPlugin.OsMetrics,
+      PromExPlugin.NatsMetrics
     ]
   end
 

@@ -1,0 +1,54 @@
+global:
+  scrape_interval: 15s # Scrape metrics every 15 seconds
+  evaluation_interval: 15s # Evaluate rules every 15 seconds
+
+# Scrape configurations for each service
+scrape_configs:
+  # User Service metrics
+  - job_name: "user_svc"
+    static_configs:
+      - targets: ["user_svc:${USER_SVC_PORT}"]
+        labels:
+          service: "user_svc"
+          environment: "dev"
+
+  # Client Service metrics
+  - job_name: "client_svc"
+    static_configs:
+      - targets: ["client_svc:${CLIENT_SVC_PORT}"]
+        labels:
+          service: "client_svc"
+          environment: "dev"
+
+  # Image Service metrics
+  - job_name: "image_svc"
+    static_configs:
+      - targets: ["image_svc:${IMAGE_SVC_PORT}"]
+        labels:
+          service: "image_svc"
+          environment: "dev"
+
+  # Email Service metrics
+  - job_name: "email_svc"
+    static_configs:
+      - targets: ["email_svc:${EMAIL_SVC_PORT}"]
+        labels:
+          service: "email_svc"
+          environment: "dev"
+
+  # NATS Server metrics (server-side monitoring)
+  - job_name: "nats-server"
+    static_configs:
+      - targets: ["nats-server:8222"]
+    metrics_path: "/varz"
+    metric_relabel_configs:
+      # Convert NATS JSON metrics to Prometheus format
+      - source_labels: [__name__]
+        regex: "(.+)"
+        target_label: __name__
+        replacement: "nats_server_${1}"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

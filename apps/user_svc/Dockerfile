@@ -32,6 +32,7 @@ RUN mix local.hex --force && \
 COPY libs/protos libs/protos/
 COPY libs/otel_nats libs/otel_nats/
 COPY libs/storage libs/storage/
+COPY libs/custom_metrics libs/custom_metrics/
 
 # Copy user_svc dependency files
 COPY apps/${SERVICE}/mix.exs apps/${SERVICE}/mix.lock apps/${SERVICE}/

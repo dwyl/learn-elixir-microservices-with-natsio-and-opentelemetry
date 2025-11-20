@@ -25,7 +25,8 @@ defmodule ImageService.PromEx do
 
       # Custom metrics plugins
       PromExPlugin.ImageConversionMetrics,
-      PromExPlugin.OsMetrics
+      PromExPlugin.OsMetrics,
+      PromExPlugin.NatsMetrics
     ]
   end
 

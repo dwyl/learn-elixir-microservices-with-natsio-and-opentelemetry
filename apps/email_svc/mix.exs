@@ -62,7 +62,7 @@ defmodule EmailSvc.MixProject do
       # {:req, "~> 0.5.15"},
       {:bandit, "~> 1.8"},
       {:gnat, "~> 1.11.1"},
-      {:jetstream, "~> 0.0.9"},
+      {:jetstream, "~> 0.0.0"},
       # email client
       {:swoosh, "~> 1.19.8"},
       # serializers
@@ -70,7 +70,8 @@ defmodule EmailSvc.MixProject do
       {:protos, path: "../../libs/protos"},
       {:protobuf, "~> 0.15.0"},
       {:otel_nats, path: "../../libs/otel_nats"},
-      {:jetstream_setup, path: "../../libs/jetstream_setup"},
+      {:stream_setup, path: "../../libs/stream_setup"},
+      {:custom_metrics, path: "../../libs/custom_metrics"},
 
       # Telemetry, OpenTelemetry for distributed tracing
       {:telemetry, "~> 1.3"},

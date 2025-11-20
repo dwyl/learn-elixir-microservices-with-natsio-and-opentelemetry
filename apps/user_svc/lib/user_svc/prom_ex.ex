@@ -21,7 +21,8 @@ defmodule UserService.PromEx do
       Plugins.Application,
       Plugins.Beam,
       {Plugins.Phoenix, router: UserServiceWeb.Router, endpoint: UserServiceWeb.Endpoint},
-      PromExPlugin.OsMetrics
+      PromExPlugin.OsMetrics,
+      PromExPlugin.NatsMetrics
       # Plugins.Ecto,
       # Plugins.Oban,
       # Plugins.PhoenixLiveView,

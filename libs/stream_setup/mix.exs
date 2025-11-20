@@ -1,9 +1,9 @@
-defmodule OtelNats.MixProject do
+defmodule StreamSetup.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :otel_nats,
+      app: :stream_setup,
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
@@ -15,7 +15,10 @@ defmodule OtelNats.MixProject do
     [extra_applications: [:logger]]
   end
 
-  defp deps do
-    [{:opentelemetry_api, "~> 1.5"}]
+  def deps do
+    [
+      {:gnat, "~> 1.11.1"},
+      {:jason, "~> 1.4"}
+    ]
   end
 end

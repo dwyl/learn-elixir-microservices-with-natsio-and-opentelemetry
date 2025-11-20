@@ -1587,6 +1587,74 @@ for service in user_svc image_svc email_svc client_svc; do
 done
 ```
 
+#### NATS Metrics (Gnat Telemetry)
+
+**Purpose**: Track messaging layer performance with NATS (Gnat) telemetry events
+
+**Why this matters**: Separates NATS communication latency from application processing time when debugging slow workflows.
+
+**Metrics exposed via PromExPlugin.NatsMetrics** ([libs/nats_metrics/lib/nats_metrics.ex](libs/nats_metrics/lib/nats_metrics.ex)):
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `gnat_pub_duration_microseconds` | Histogram | How long does `Gnat.pub()` take? |
+| `gnat_message_received_total` | Counter | Messages received per topic |
+| `gnat_request_duration_microseconds` | Histogram | Request/reply latency |
+| `gnat_subscription_total` | Counter | Subscriptions created |
+| `gnat_unsubscription_total` | Counter | Unsubscriptions |
+
+**Example PromQL queries**:
+
+```promql
+# Average publish latency per topic
+rate(gnat_pub_duration_microseconds_sum{job="user_svc"}[1m]) /
+rate(gnat_pub_duration_microseconds_count{job="user_svc"}[1m])
+
+# Message throughput per topic (messages/sec)
+rate(gnat_message_received_total[1m])
+
+# P95 publish latency
+histogram_quantile(0.95,
+  rate(gnat_pub_duration_microseconds_bucket[1m])
+)
+
+# Total messages published vs received (detect message loss)
+sum(rate(gnat_pub_duration_microseconds_count[5m]))
+  by (topic)
+-
+sum(rate(gnat_message_received_total[5m]))
+  by (topic)
+```
+
+**Debugging scenario: "Why is email_svc slow?"**
+
+Without NATS metrics:
+
+```text
+Check Jaeger → See 500ms delay between user_svc and email_svc
+Where's the bottleneck? 🤷
+```
+
+With NATS metrics:
+
+```promql
+gnat_pub_duration_microseconds{topic="email.send"} → 5ms (NATS is fast ✅)
+gnat_message_received_total{topic="email.send"} → 100/sec (throughput OK ✅)
+email_svc processing time → 495ms (⚠️ Email sending is the bottleneck!)
+```
+
+**Load balancing validation** (verifying 50/50 split between `image_svc_1` and `image_svc_2`):
+
+```promql
+# Messages received by each instance
+sum(rate(gnat_message_received_total{topic="image.convert.url"}[1m]))
+  by (instance)
+
+# Expected output:
+# image_svc_1: 50/sec
+# image_svc_2: 50/sec
+```
+
 ### Dashboards (Grafana)
 
 **Purpose**: Unified visualization for traces, logs, and metrics

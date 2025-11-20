@@ -1,23 +1,25 @@
-defmodule JetstreamSetup.MixProject do
+defmodule Metrics.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :jetstream_setup,
+      app: :custom_metrics,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
   end
 
   def application do
-    [extra_applications: [:logger]]
+    [
+      extra_applications: [:logger]
+    ]
   end
 
   defp deps do
     [
-      {:jetstream, "~> 0.0.9"}
+      {:prom_ex, "~> 1.11"}
     ]
   end
 end

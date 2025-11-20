@@ -70,8 +70,9 @@ defmodule ImageService.MixProject do
       {:plug, "~> 1.16"},
       {:req, "~> 0.5.15"},
       {:gnat, "~> 1.11.1"},
-      {:jetstream, "~> 0.0.9"},
-      {:jetstream_setup, path: "../../libs/jetstream_setup"},
+      {:jetstream, "~> 0.0.0"},
+      {:stream_setup, path: "../../libs/stream_setup"},
+      {:custom_metrics, path: "../../libs/custom_metrics"},
       {:storage, path: "../../libs/storage"},
       {:broadway, "~> 1.2"},
       # serializers

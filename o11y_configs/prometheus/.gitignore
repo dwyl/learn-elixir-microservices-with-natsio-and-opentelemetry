@@ -1,0 +1,3 @@
+# Generated files (created at container startup from .template files)
+prometheus.yml
+prometheus-lb.yml

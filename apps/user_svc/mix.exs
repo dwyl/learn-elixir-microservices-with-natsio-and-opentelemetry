@@ -70,25 +70,20 @@ defmodule UserService.MixProject do
       {:libcluster, "~> 3.5"},
       {:phoenix, "~> 1.8.1"},
       {:bandit, "~> 1.8"},
-      # {:plug, "~> 1.18"},
       {:ex_image_info, "~> 1.0"},
       {:gnat, "~> 1.11.1"},
-      {:jetstream, "~> 0.0.9"},
 
       # serializers
       {:jason, "~> 1.4"},
       {:protos, path: "../../libs/protos"},
       {:protobuf, "~> 0.15.0"},
       {:otel_nats, path: "../../libs/otel_nats"},
+      {:custom_metrics, path: "../../libs/custom_metrics"},
 
       # S3/MinIO client
       {:storage, path: "../../libs/storage"},
       {:req, "~> 0.5.16"},
       {:req_s3, "~> 0.2.3"},
-      # {:ex_aws, "~> 2.5"},
-      # {:ex_aws_s3, "~> 2.5"},
-      # {:hackney, "~> 1.20"},
-      # {:sweet_xml, "~> 0.7"},
 
       # OpenTelemetry for distributed tracing
       {:opentelemetry_api, "~> 1.5"},
@@ -106,9 +101,6 @@ defmodule UserService.MixProject do
 
       # Structured JSON logging
       {:logger_json, "~> 7.0"},
-
-      # OpenAPI documentation
-      # {:open_api_spex, "~> 3.21"},
 
       # static tests
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

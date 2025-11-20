@@ -342,16 +342,21 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: msvc-prometheus
+    user: root
+    env_file:
+      - .env.staging
     ports:
       - ${PROMETHEUS_UI_PORT}:9090 # Prometheus UI and API
     volumes:
-      - ./o11y_configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./o11y_configs/prometheus/prometheus.yml.template:/etc/prometheus/prometheus-env.yml:ro
+      - ./o11y_configs/prometheus/replace_env.sh:/tmp/replace_env.sh:ro
       - prometheus-data:/prometheus
+    entrypoint: /bin/sh
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - -c
+      - |
+        sh /tmp/replace_env.sh /etc/prometheus/prometheus-env.yml /etc/prometheus/prometheus.yml
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.console.libraries=/usr/share/prometheus/console_libraries --web.console.templates=/usr/share/prometheus/consoles
     depends_on:
       - user_svc
       - client_svc

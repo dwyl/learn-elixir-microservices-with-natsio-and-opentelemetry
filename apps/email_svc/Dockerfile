@@ -31,7 +31,8 @@ RUN mix local.hex --force && \
 # Copy shared protos library first (for better caching)
 COPY libs/protos libs/protos/
 COPY libs/otel_nats libs/otel_nats/
-COPY libs/jetstream_setup libs/jetstream_setup/
+COPY libs/stream_setup libs/stream_setup/
+COPY libs/custom_metrics libs/custom_metrics/
 
 
 # Copy email_svc dependency files

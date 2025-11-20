@@ -28,7 +28,7 @@ services:
     ports:
       - "4222:4222" # Client connections
       - "8222:8222" # HTTP monitoring
-    command: -js --store_dir=/data
+    command: -js --store_dir=/data -m 8222
     volumes:
       - nats_data:/data
     restart: unless-stopped
@@ -177,7 +177,7 @@ services:
       RELEASE_DISTRIBUTION: "name"
       RELEASE_NODE: "image_svc_2@image_svc_2.msvc" # Unique node name
       DATABASE_PATH: /app/db/conversion_cache.sql3
-      PORT: ${IMAGE_SVC_PORT}
+      IMAGE_SVC_PORT: ${IMAGE_SVC_2_PORT}
       OTEL_SERVICE_NAME: "image_svc_2" # Unique service name for tracing
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
       MINIO_HOST: "minio"
@@ -187,7 +187,7 @@ services:
     networks:
       - msvc
     healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:${IMAGE_SVC_PORT}/health" ]
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:${IMAGE_SVC_2_PORT}/health" ]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -297,16 +297,21 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: msvc-prometheus
+    user: root
+    env_file:
+      - .env.staging
     ports:
       - ${PROMETHEUS_UI_PORT}:9090
     volumes:
-      - ./o11y_configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./o11y_configs/prometheus/prometheus-lb.yml.template:/etc/prometheus/prometheus-env.yml:ro
+      - ./o11y_configs/prometheus/replace_env.sh:/tmp/replace_env.sh:ro
       - prometheus-data:/prometheus
+    entrypoint: /bin/sh
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - -c
+      - |
+        sh /tmp/replace_env.sh /etc/prometheus/prometheus-env.yml /etc/prometheus/prometheus.yml
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.console.libraries=/usr/share/prometheus/console_libraries --web.console.templates=/usr/share/prometheus/consoles
     depends_on:
       - user_svc
       - client_svc

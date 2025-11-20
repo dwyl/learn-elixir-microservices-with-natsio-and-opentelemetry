@@ -34,7 +34,7 @@
       }
     ]
   },
-  "description": "OS-level system metrics captured by the custom ClientSvc.OsMetrics.PromExPlugin using :os_mon. Displays CPU utilization, load averages, and memory usage.",
+  "description": "OS-level system metrics captured by PromExPlugin.OsMetrics using :os_mon. Displays CPU utilization, load averages, and memory usage across all services.",
   "editable": true,
   "gnetId": null,
   "graphTooltip": 1,
@@ -94,8 +94,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_util",
-          "legendFormat": "CPU Usage",
+          "expr": "prom_ex_os_mon_cpu_util{job=~\"$service\"}",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -145,8 +145,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_avg1 / 256",
-          "legendFormat": "1 minute",
+          "expr": "prom_ex_os_mon_cpu_avg1{job=~\"$service\"} / 256",
+          "legendFormat": "{{job}} - 1min",
           "refId": "A"
         },
         {
@@ -154,8 +154,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_avg5 / 256",
-          "legendFormat": "5 minutes",
+          "expr": "prom_ex_os_mon_cpu_avg5{job=~\"$service\"} / 256",
+          "legendFormat": "{{job}} - 5min",
           "refId": "B"
         },
         {
@@ -163,8 +163,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_avg15 / 256",
-          "legendFormat": "15 minutes",
+          "expr": "prom_ex_os_mon_cpu_avg15{job=~\"$service\"} / 256",
+          "legendFormat": "{{job}} - 15min",
           "refId": "C"
         }
       ],
@@ -214,8 +214,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_memory_total",
-          "legendFormat": "Total",
+          "expr": "prom_ex_os_mon_memory_total{job=~\"$service\"}",
+          "legendFormat": "{{job}} - Total",
           "refId": "A"
         },
         {
@@ -223,8 +223,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_memory_allocated",
-          "legendFormat": "Allocated",
+          "expr": "prom_ex_os_mon_memory_allocated{job=~\"$service\"}",
+          "legendFormat": "{{job}} - Allocated",
           "refId": "B"
         }
       ],
@@ -274,8 +274,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_system_memory_available_memory",
-          "legendFormat": "Available",
+          "expr": "prom_ex_os_mon_system_memory_available_memory{job=~\"$service\"}",
+          "legendFormat": "{{job}} - Available",
           "refId": "A"
         },
         {
@@ -283,8 +283,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_system_memory_free_memory",
-          "legendFormat": "Free",
+          "expr": "prom_ex_os_mon_system_memory_free_memory{job=~\"$service\"}",
+          "legendFormat": "{{job}} - Free",
           "refId": "B"
         }
       ],
@@ -345,7 +345,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_util",
+          "expr": "prom_ex_os_mon_cpu_util{job=~\"$service\"}",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -399,7 +400,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_cpu_avg1 / 256",
+          "expr": "prom_ex_os_mon_cpu_avg1{job=~\"$service\"} / 256",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -452,7 +454,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_memory_allocated",
+          "expr": "prom_ex_os_mon_memory_allocated{job=~\"$service\"}",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -505,7 +508,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "client_svc_prom_ex_os_mon_system_memory_available_memory",
+          "expr": "prom_ex_os_mon_system_memory_available_memory{job=~\"$service\"}",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -516,9 +520,35 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["os", "system", "resources", "client_svc"],
+  "tags": ["os", "system", "resources"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "prometheus",
+        "definition": "label_values(prom_ex_os_mon_cpu_util, job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "options": [],
+        "query": {
+          "query": "label_values(prom_ex_os_mon_cpu_util, job)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
