@@ -2,6 +2,13 @@
 # Environment variable substitution script for Prometheus config
 # Usage: ./replace_env.sh input.yml output.yml
 #
+# NOTE: Prometheus does NOT support environment variable interpolation natively.
+# This script performs substitution before Prometheus starts, replacing ${VAR_NAME}
+# placeholders with actual environment variable values from docker-compose.
+#
+# For Kubernetes: Use an init container with envsubst, or better yet, use
+# Kubernetes service discovery instead of static targets.
+#
 # Replaces ${VAR_NAME} with environment variable values
 # Works without envsubst dependency
 

@@ -36,18 +36,6 @@ scrape_configs:
           service: "email_svc"
           environment: "dev"
 
-  # NATS Server metrics (server-side monitoring)
-  - job_name: "nats-server"
-    static_configs:
-      - targets: ["nats-server:8222"]
-    metrics_path: "/varz"
-    metric_relabel_configs:
-      # Convert NATS JSON metrics to Prometheus format
-      - source_labels: [__name__]
-        regex: "(.+)"
-        target_label: __name__
-        replacement: "nats_server_${1}"
-
   # Prometheus self-monitoring
   - job_name: "prometheus"
     static_configs:

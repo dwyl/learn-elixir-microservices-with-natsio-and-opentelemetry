@@ -10,13 +10,22 @@ We demonstrate both CPU-intensive (PNG-to-PDF conversion with S3 streaming) and 
 
 **What we DON'T cover**: Data consistency (sagas, event sourcing), deployment orchestration beyond `docker-compose`, or service discovery (service mesh).
 
-**Key Technologies**: NATS JetStream, Broadway, MinIO (local S3), Protobuf, OpenTelemetry, Prometheus, Loki, Grafana, Jaeger
+---
+
+**Technologies**:
+
+- **NATS JetStream** - Persistent, at-least-once message delivery
+- **Broadway** - Data processing pipelines with back-pressure
+- **MinIO** - S3-compatible object storage
+- **Protobuf** - Typed message contracts
+- **OpenTelemetry** - Distributed tracing and metrics
+- **Grafana Stack** - Data visualisation tool using the following data sources: Loki (logs), Prometheus (time series database for metrics), Jaeger (traces)
 
 ---
 
 ## About NATS.io
 
-<img src="priv/natsio.png" alt="natsio">
+[<img src="priv/natsio.png" alt="natsio">](https://natsbyexample.com/)
 
 NATS is a lightweight messaging platform providing:
 
@@ -24,9 +33,9 @@ NATS is a lightweight messaging platform providing:
 - **Load-balanced queues** across multiple instances of a service
 - **Message replay** on failure or cache rebuilding
 
-**Elixir libraries**: [gnat](https://hexdocs.pm/gnat/readme.html) (core NATS), [jetstream](https://hexdocs.pm/jetstream/overview.html) (persistence layer)
+**Elixir library**: [gnat](https://hexdocs.pm/gnat/readme.html) (core NATS)
 
-**Can JetStream replace Oban?**:
+**Q: Can JetStream replace Oban?**:
 
 **Short answer**: No, they solve different problems. Use both.
 
@@ -44,7 +53,7 @@ NATS is a lightweight messaging platform providing:
 - **Jobs that need retries with complex rules**: "Retry 3 times, then notify admin"
 - **Jobs that must run exactly once**: Database-backed uniqueness prevents duplicates
 
-**Why not JetStream for critical jobs?**
+**Q: Why not JetStream for critical jobs?**
 
 JetStream lacks:
 
@@ -54,7 +63,7 @@ JetStream lacks:
 - **Idempotency**: Deduplication based on unique job parameters (Oban does this via DB constraints)
 - **Auditability**: Full job history with timestamps and state transitions
 
-**What JetStream does better than Oban**:
+**Q: What JetStream does better than Oban**:
 
 - **Free horizontal scaling**: Add more servers, get automatic load balancing (no Postgres bottleneck)
 - **Message replay**: Your cache service crashed? Replay all past events to rebuild it
@@ -101,6 +110,7 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
 > **Security**: This demo uses unencrypted TCP without authentication (JWT) and runs behind Caddy reverse proxy on port 8080. In production, enable TLS and NATS authentication.
 
 <img src="priv/Livebook.png" alt="livebook">
+
 ---
 
 ## Table of Contents
@@ -108,14 +118,12 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
 - [Microservices with Elixir, NATS JetStream, and Observability](#microservices-with-elixir-nats-jetstream-and-observability)
   - [About NATS.io](#about-natsio)
   - [Running the Demo](#running-the-demo)
-  - [](#)
   - [Table of Contents](#table-of-contents)
   - [Architecture Overview](#architecture-overview)
   - [The Problem](#the-problem)
   - [What This Demo Covers](#what-this-demo-covers)
     - [Architecture Patterns](#architecture-patterns)
     - [Observability (OpenTelemetry)](#observability-opentelemetry)
-    - [Technologies](#technologies)
   - [Prerequisites](#prerequisites)
     - [System Requirements](#system-requirements)
   - [Quick Start](#quick-start)
@@ -154,6 +162,11 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
     - [Traces (Jaeger)](#traces-jaeger)
     - [Logs (Loki + Promtail)](#logs-loki--promtail)
     - [Metrics (Prometheus + PromEx)](#metrics-prometheus--promex)
+      - [Configuration](#configuration)
+      - [Pre-built vs Custom Plugins](#pre-built-vs-custom-plugins)
+      - [Exporting Pre-built Dashboards](#exporting-pre-built-dashboards)
+      - [Custom Metrics Plugins](#custom-metrics-plugins)
+      - [NATS Metrics (Gnat Telemetry)](#nats-metrics-gnat-telemetry)
     - [Dashboards (Grafana)](#dashboards-grafana)
   - [Production Considerations](#production-considerations)
     - [Scaling Strategies](#scaling-strategies)
@@ -176,11 +189,11 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
 
 ```mermaid
 architecture-beta
-    service lvb(cloud)[LiveBook]
     group api(cloud)[API]
+    service lvb(cloud)[LiveBook] in api
     service nats(internet)[NATS JetStream] in api
     service client(internet)[Client] in api
-    service s3(disk)[MinIO S3] in api
+    service s3(disk)[S3 MinIO] in api
     service user(server)[User Gateway] in api
     service email(internet)[Email Service] in api
     service image(disk)[Image Service] in api
@@ -230,7 +243,7 @@ Before you can optimize or scale, you need visibility:
 - **Metrics**: CPU/memory consumption?
 - **Logs**: What errors occurred and when?
 
-This demo shows how to build and instrument such a system and how to use the async message broker NATS.IO.
+This demo shows how to build and instrument such a system and how to use the async message broker `nats.io`.
 
 ---
 
@@ -241,7 +254,7 @@ This demo shows how to build and instrument such a system and how to use the asy
 - **Event-driven messaging** with NATS JetStream (persistent, ordered delivery)
 - **Broadway pipelines** for scalable stream processing
 - **Pub/Sub communication** replacing HTTP request/response
-- **S3 streaming** for large file handling (presigned URLs)
+- **S3 streaming** for large file handling (presigned URLs or Eexternalized pattern)
 - **Protobuf serialization** for type-safe, efficient message encoding
 
 ### Observability (OpenTelemetry)
@@ -251,16 +264,6 @@ This demo shows how to build and instrument such a system and how to use the asy
 - **Metrics collection** with Prometheus + PromEx
 - **Unified dashboards** in Grafana
 - **Span links** for async callback correlation
-
-### Technologies
-
-- **NATS JetStream** - Persistent, at-least-once message delivery
-- **Broadway** - Data processing pipelines with back-pressure
-- **MinIO** - S3-compatible object storage
-- **ImageMagick** - PNG/JPEG to PDF conversion
-- **Protobuf** - Typed message contracts
-- **OpenTelemetry** - Distributed tracing and metrics
-- **Grafana Stack** - Loki (logs), Prometheus (metrics), Jaeger (traces)
 
 ---
 
@@ -277,28 +280,36 @@ This demo shows how to build and instrument such a system and how to use the asy
 1. **Start all services**:
 
    ```sh
-   docker-compose -f docker-compose-all.yml up -d
+   docker compose -f docker-compose-all.yml up -d
    ```
 
-2. **Access services**: the Livebook (http://localhost:8080)  gives you access to Grafana, Jeager UI and the MinIO console (<minioadmin@minioadmin>)
+   or to start two instances of the Image service with automatic load balancing:
+
+   ```sh
+   docker compose -f docker-compose-lb-image.yml up -d
+   ```
+
+2. **Access services**: the Livebook (http://localhost:8080)  gives you access to Grafana, Jaeger UI and the MinIO console (<minioadmin@minioadmin>)
 
 3. **Connect to a service**:
 
    ```sh
-   docker-compose -f docker-compose-all.yml exec user_svc bin/user_svc remote
+   docker exec user_svc bin/user_svc remote
    ```
 
 4. **Test the system** (from LiveBook or remote shell):
 
    ```elixir
-   # Send an email
-   Email.create("user@example.com", "John Doe")
+   # Send an email to "user2@com":
+   iex> Email.create(2, :wlcome)
 
    # Convert an image to PDF
-   Image.convert_png("test.png", "user@example.com")
+   iex> Image.convert_png(File.read!("test.png), "user@example.com")
    ```
 
-5. **View traces in Jaeger**: http://localhost:16686
+5. **View traces in Jaeger**: click on JAEGER in the Livebook
+
+6. **explorer the Grafana dashboards: click on GRAFANA in the Livebook
 
 ---
 
@@ -345,9 +356,14 @@ This demo shows how to build and instrument such a system and how to use the asy
 
 ### Why JetStream?
 
-In a classic microservice architecture, you use HTTP requests and would use `Oban` to run background jobs and retires.
+In a classic microservice architecture, you use HTTP requests and most probably `Oban` to run background jobs and retires.
 
-**JetStream** is NATS with persistence and stream processing capabilities. Unlike core NATS (fire-and-forget), JetStream provides:
+**JetStream** is NATS with persistence and stream processing capabilities.
+We previously discussed about JetStream capability to replace in part Oban.
+
+JetStream is useful in the client pull model. Classic pub/sub is a server push model.
+
+Unlike core NATS (fire-and-forget), JetStream provides:
 
 - ✅ **At-least-once delivery** - Messages persist until acknowledged
 - ✅ **Automatic retries** - Failed messages are redelivered
@@ -363,23 +379,19 @@ In a classic microservice architecture, you use HTTP requests and would use `Oba
 - Provides configurable concurrency
 - Built-in error handling and retries
 
-> [!IMPORTANT]
-> **Queue Groups** (core NATS) vs **Durable Consumers** (JetStream):
->
-> - **Queue Groups**: Load balancing for server-push subscriptions, no persistence
-> - **Durable Consumers**: Load balancing for client-pull subscriptions, with persistence and replay
+There is a concept of _queue group_ and _durable consumer_ in NATS.
+
+> - **Queue Groups** (core NATS): Load balancing for server-push subscriptions, no persistence
+> - **Durable Consumers** (JetStream): Load balancing for client-pull subscriptions, with persistence and replay
 > - Both provide "one message to one instance" semantics, but durable consumers require JetStream
 >
 > **TLDR**: If you use pub/sub (server push), use `Gnat.ConsumerSupervisor` with a **queue group** for load balancing. If you use client pull (polling), enable JetStream and use Broadway with a **durable consumer**.
 
-> [!WARNING]
-> The `Gnat.Jetstream.PullConsumer` behavior has known issues with acknowledgments. **Use Broadway with `OffBroadway.Jetstream.Producer` instead** for production-ready client-pull with JetStream.
-
 ### Setting Up Streams
 
 Streams are defined in configuration files and set up automatically at service startup.
+**Example**: Image conversion stream ([libs/jetstream_setup/priv/image_svc.exs](libs/jetstream_setup/priv/image_svc.exs)). We define the stream "IMAGES" with two _durable consumers_.
 
-**Example**: Image conversion stream ([libs/jetstream_setup/priv/image_svc.exs](libs/jetstream_setup/priv/image_svc.exs)):
 
 ```elixir
 # config/jetstream_setup.exs for image_svc
@@ -387,7 +399,8 @@ Streams are defined in configuration files and set up automatically at service s
   streams: [
     %{
       name: "IMAGES",
-      subjects: ["image.>"],  # Matches image.convert, image.converted, etc.
+      subjects: ["image.>"],  
+      # Matches image.convert, image.converted, etc.
       retention: :work_queue,
       max_age: 3600,  # Messages expire after 1 hour
       storage: :file  # Persistent storage
@@ -463,13 +476,17 @@ defmodule Broadway.Emails.Notification do
           connection_name: :gnat,
           stream_name: "EMAILS",
           consumer_name: "notification_mailer",
-          max_number_of_messages: 50,  # Fetch 50 messages per batch
-          receive_interval: 10         # Poll every 10ms for low latency
+          max_number_of_messages: 50,  
+          # Fetch 50 messages per batch
+          receive_interval: 10         
+          # Poll every 10ms for low latency
         },
-        concurrency: 2  # 2 producer processes
+        concurrency: 2  
+        # 2 producer processes
       ],
       processors: [
-        mailer: [concurrency: 4]  # 4 parallel email senders
+        mailer: [concurrency: 2]  
+        # 2 parallel email senders
       ]
     )
   end
@@ -498,15 +515,19 @@ end
 ```elixir
 # High-throughput configuration (Image Service)
 producer: [
-  concurrency: 2,           # Multiple producers for pulling messages
+  concurrency: 2,
+  # Multiple producers for pulling messages
   module: {
     OffBroadway.Jetstream.Producer,
-    max_number_of_messages: 50,  # Large batches
-    receive_interval: 10         # Frequent polling (10ms)
+    max_number_of_messages: 50,
+    # Large batches
+    receive_interval: 10   
+    # Frequent polling (10ms)
   }
 ],
 processors: [
-  im: [concurrency: 8]      # 8 parallel image conversions
+  im: [concurrency: 8]
+  # 8 parallel image conversions
 ]
 
 # vs. Low-latency configuration (Email Service)
@@ -523,17 +544,11 @@ processors: [
 ]
 ```
 
-**Performance Optimizations** (from session):
-- Changed `receive_interval` from 100ms → 10ms (10x faster polling)
-- Increased `max_number_of_messages` from 10 → 50 (5x larger batches)
-- Increased processor concurrency: 2 → 8 (4x parallelism)
-- Result: Significant latency reduction and throughput improvement
+The observability UIs are key for you to optimise the settings.
 
 ### Load Balancing with Multiple Service Instances
 
-**Question**: Does NATS provide automatic load balancing when running multiple instances of the same service?
-
-**Answer**: **YES!** NATS provides built-in load balancing through two mechanisms:
+NATS provides built-in _load balancing_ through two mechanisms:
 
 | Mechanism             | NATS Type | Model       | JetStream Required? | Persistence |
 | --------------------- | --------- | ----------- | ------------------- | ----------- |
@@ -562,6 +577,7 @@ flowchart TB
 #### Client Pull Model (Broadway with OffBroadway.Jetstream.Producer)
 
 **How it works**:
+
 1. Each Broadway instance connects to the **same durable consumer**
 2. Each instance pulls messages independently via `JetStream.Pull`
 3. JetStream tracks which messages are delivered to which instance
@@ -579,7 +595,8 @@ Broadway.start_link(
       OffBroadway.Jetstream.Producer,
       connection_name: :gnat,
       stream_name: "IMAGES",
-      consumer_name: "url_to_pdf",  # ← SAME durable consumer name
+      consumer_name: "url_to_pdf",  
+      # ← SAME durable consumer name
       max_number_of_messages: 50,
       receive_interval: 10
     },
@@ -656,7 +673,7 @@ Gnat.ConsumerSupervisor.start_link(
 **1. Start services with 2 image_svc instances**:
 
 ```sh
-docker-compose -f docker-compose-load-balance-test.yml up -d
+docker compose -f docker-compose-lb-image.yml up -d
 ```
 
 This starts:
@@ -669,31 +686,36 @@ This starts:
 
 ```sh
 # Terminal 1
-docker-compose -f docker-compose-load-balance-test.yml logs -f image_svc_1
+docker compose -f docker-compose-lb-image.yml logs -f image_svc_1
 
 # Terminal 2
-docker-compose -f docker-compose-load-balance-test.yml logs -f image_svc_2
+docker compose -f docker-compose-lb-iamge.yml logs -f image_svc_2
 ```
 
 **3. Publish 100 image conversion jobs**:
 
 ```elixir
 # From livebook or remote shell
-Task.async_stream(1..100, fn i ->
-  # Publish image conversion request
-  request = %Mcsv.V3.ImageConversionRequest{
-    user_id: "user_#{i}",
-    user_email: "user#{i}@example.com",
-    source: {:s3_ref, %{bucket: "msvc-images", key: "test.png"}},
-    input_format: "png",
-    pdf_quality: "high",
-    job_id: "job_#{i}"
-  }
-
-  binary = Mcsv.V3.ImageConversionRequest.encode(request)
-  :ok = Gnat.pub(:gnat, "image.convert.url", binary)
-end, max_concurrency: 10)
-|> Stream.run()
+Task.async_stream(
+  1..100, 
+  fn i ->
+    # Publish image conversion request
+    binary_request = 
+      %Mcsv.V3.ImageConversionRequest{
+        user_id: "user_#{i}",
+        user_email: "user#{i}@example.com",
+        source: {:s3_ref, %{bucket: "msvc-images", key: "test.png"}},
+        input_format: "png",
+        pdf_quality: "high",
+        job_id: "job_#{i}"
+      }
+      |> Mcsv.V3.ImageConversionRequest.encode()
+    :ok = Gnat.pub(:gnat, "image.convert.url", binary)
+    end, 
+    max_concurrency: 10,
+    ordered: false
+  )
+  |> Stream.run()
 ```
 
 **4. Observe load balancing**:
@@ -722,14 +744,7 @@ Open Jaeger UI (<http://localhost:16686>) and search for traces. You'll see:
 - Other traces show `image_svc_2` as the service
 - Work is distributed roughly 50/50
 
-**6. Scale up further**:
-
-```sh
-# Add a 3rd instance
-docker-compose -f docker-compose-load-balance-test.yml up -d --scale image_svc_3=1
-```
-
-Messages are now distributed across 3 instances automatically!
+You can scale up further!
 
 #### Important Configuration Notes
 
@@ -775,8 +790,6 @@ stream_name: "IMAGES"
 | Server Push | Low-latency event handling     | Immediate delivery, simplicity   |
 | Server Push | Lightweight message processing | No polling overhead              |
 
-**Recommendation**: For image conversion (CPU-bound, variable processing time), **client pull (Broadway)** is the better choice.
-
 ### Pub/Sub Patterns
 
 **Publishing messages** (with trace context):
@@ -797,7 +810,7 @@ defp publish_image_conversion(user_id, image_url) do
   # Inject trace context into NATS headers
   trace_headers = OtelNats.inject()
 
-  :ok = Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
+  Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
 end
 ```
 
@@ -853,14 +866,14 @@ end
 ```mermaid
 sequenceDiagram
     Client->>+NATS: pub <br> user.send.email
-    NATS-->>+User: dispatch
+    NATS-->>+User: sub
     User->>NATS: pub <br> email.send
-    NATS-->>+Email: dispatch (Broadway)
+    NATS-->>+Email: pull (Broadway)
     Email->>Email: Send via Swoosh
     Email->>NATS: pub <br> user.email.sent
-    NATS-->>User: dispatch
+    NATS-->>User: sub
     User->>NATS: pub <br> client.email.sent
-    NATS-->>Client: dispatch (callback)
+    NATS-->>Client: sub (callback)
 ```
 
 **Key Features**:
@@ -875,20 +888,20 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     Client->>+NATS: pub <br> user.convert.image
-    NATS-->>+User: dispatch
+    NATS-->>+User: sub
     User->>+S3: Upload image + presigned URL
     User->>NATS: pub <br> image.convert.url
-    NATS-->>Image: dispatch (Broadway)
+    NATS-->>Image: pull (Broadway)
     Image->>S3: Stream download
     Image->>Image: ImageMagick convert
     Image->>S3: Upload PDF
     Image->>NATS: pub <br> user.image.converted
-    NATS-->>User: dispatch
+    NATS-->>User: sub
     User->>NATS: pub <br> client.image.converted
-    NATS-->>Client: dispatch (callback)
+    NATS-->>Client: sub
 ```
 
-**Pull Model / Presigned URLs**:
+**Pull Model / Presigned URLs** via External storage:
 
 - Large binaries never pass through message queue
 - Only metadata (URLs, job IDs) transmitted
@@ -1068,7 +1081,7 @@ request = %Mcsv.V3.ImageConversionRequest{
 }
 
 binary = Mcsv.V3.ImageConversionRequest.encode(request)
-:ok = Gnat.pub(:gnat, "image.convert.url", binary)
+Gnat.pub(:gnat, "image.convert.url", binary)
 ```
 
 **Decoding** (in Broadway handler):
@@ -1110,7 +1123,7 @@ end
 
 **Usage**:
 
-- In the _proto files, use: `package msvc.v3`
+- In the _proto files_, use: `package msvc.v3`
 - In the code, namespace with `V3`:
 
 ```elixir
@@ -1222,7 +1235,7 @@ config :opentelemetry_exporter,
 
 **OtelNats Helper** ([libs/otel_nats/lib/otel_nats.ex](libs/otel_nats/lib/otel_nats.ex)):
 
-Custom module for trace context propagation through NATS headers.
+Custom module for trace context propagation through NATS headers with conversion between OTel 5HTTP) and NATS tuples.
 
 ```elixir
 defmodule OtelNats do
@@ -1296,7 +1309,7 @@ Tracer.with_span "UserService.publish_image_request" do
   # Inject current trace context into NATS headers
   trace_headers = OtelNats.inject()
 
-  :ok = Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
+  Gnat.pub(:gnat, "image.convert.url", binary, headers: trace_headers)
 end
 ```
 
@@ -1478,13 +1491,18 @@ scrape_configs:
 
 **Purpose**: Time-series metrics for performance analysis
 
+**Why PromEx**: Automatically collects and exposes application metrics in Prometheus format by hooking into Elixir's `:telemetry` system. Solves the challenge of instrumenting distributed systems without manual metric tracking.
+
+**What PromEx Provides**:
+
+1. **Automatic `/metrics` endpoint** - Prometheus scrapes this every 15s
+2. **Pre-built plugins** - Out-of-box metrics for Application, BEAM VM, Phoenix, Broadway, Ecto, Oban
+3. **Pre-built Grafana dashboards** - Ready-to-import JSON dashboards matching plugin metrics
+4. **Custom plugin support** - Build your own metrics from any `:telemetry` events
+
 **Model**: PULL (Prometheus scrapes /metrics endpoints)
 
-**Format**: Plain text (key=value pairs)
-
 **Storage**: Prometheus TSDB (time-series database)
-
-**Access**: Grafana dashboards (pre-built with PromEx)
 
 **Flow**:
 
@@ -1497,7 +1515,11 @@ flowchart LR
     Prometheus -->|PromQL| Grafana
 ```
 
-**PromEx configuration** ([apps/user_svc/lib/user_svc/prom_ex.ex](apps/user_svc/lib/user_svc/prom_ex.ex)):
+#### Configuration
+
+Each service configures PromEx via its `prom_ex.ex` module ([example: apps/user_svc/lib/user_svc/prom_ex.ex](apps/user_svc/lib/user_svc/prom_ex.ex)):
+
+**1. Plugin Selection** - Which metrics to collect:
 
 ```elixir
 defmodule UserService.PromEx do
@@ -1506,58 +1528,172 @@ defmodule UserService.PromEx do
   @impl true
   def plugins do
     [
-      PromEx.Plugins.Application,  # Uptime, version
-      PromEx.Plugins.Beam,          # VM metrics (memory, processes)
-      PromEx.Plugins.Phoenix        # HTTP request metrics
-    ]
-  end
+      # Pre-built PromEx plugins (come with exportable dashboards)
+      PromEx.Plugins.Application,  # Uptime, memory, process count
+      PromEx.Plugins.Beam,          # Schedulers, atoms, ports
+      PromEx.Plugins.Phoenix,       # HTTP request metrics
+      PromEx.Plugins.Broadway,      # Pipeline throughput, latency
 
-  @impl true
-  def dashboard_assigns do
-    [
-      datasource_id: "prometheus",
-      default_selected_interval: "30s"
+      # Custom plugins (manually designed dashboards)
+      PromExPlugin.OsMetrics,           # Polling: CPU, memory via :os_mon
+      PromExPlugin.NatsMetrics,         # Event: NATS pub/sub via Gnat telemetry
+      PromExPlugin.ImageConversionMetrics  # Event: Image conversion duration/size
     ]
   end
 end
 ```
 
-**Custom metrics plugin** (OS monitoring):
+**2. Dashboard Export Configuration** - Which pre-built dashboards to generate:
 
 ```elixir
-defmodule UserService.PromEx.Plugins.OsMetrics do
+  @impl true
+  def dashboards do
+    [
+      # Only pre-built plugins support export
+      {:prom_ex, "application.json"},
+      {:prom_ex, "beam.json"},
+      {:prom_ex, "broadway.json"}
+      # Custom plugins require manual dashboard creation in Grafana
+    ]
+  end
+```
+
+**3. Datasource Configuration** - Grafana connection settings:
+
+```elixir
+  @impl true
+  def dashboard_assigns do
+    [
+      datasource_id: "prometheus",  # Must match Grafana datasource UID
+      default_selected_interval: "30s"
+    ]
+  end
+```
+
+#### Pre-built vs Custom Plugins
+
+| Type                                                             | Export Command Works? | Dashboard Source                        | Metric Collection          |
+| ---------------------------------------------------------------- | --------------------- | --------------------------------------- | -------------------------- |
+| **Pre-built** (Application, Beam, Phoenix, Broadway, Ecto, Oban) | ✓ Yes                 | `mix prom_ex.dashboard.export`          | Automatic (telemetry)      |
+| **Custom** (OsMetrics, NatsMetrics, ImageConversionMetrics)      | ✗ No                  | Create manually in Grafana, export JSON | Manual (polling or events) |
+
+#### Exporting Pre-built Dashboards
+
+```sh
+# Export single dashboard
+cd apps/user_svc
+mix prom_ex.dashboard.export \
+  --dashboard application.json \
+  --module UserService.PromEx \
+  --stdout > ../../o11y_configs/grafana/dashboards/user_svc_application.json
+
+# Batch export for all services
+for service in user_svc image_svc email_svc client_svc; do
+  cd apps/$service
+  mix prom_ex.dashboard.export --dashboard beam.json \
+    --module "${service^}.PromEx" \
+    --stdout > ../../o11y_configs/grafana/dashboards/${service}_beam.json
+  cd ../..
+done
+```
+
+#### Custom Metrics Plugins
+
+We built three custom plugins using different telemetry approaches:
+
+**1. Polling-based: OS Metrics** ([libs/metrics/lib/os_metrics.ex](libs/metrics/lib/os_metrics.ex))
+
+Polls `:os_mon` every 5 seconds for CPU and memory:
+
+```elixir
+defmodule PromExPlugin.OsMetrics do
   use PromEx.Plugin
 
   @impl true
-  def polling_metrics(opts) do
-    poll_rate = Keyword.get(opts, :poll_rate, 5_000)
-
+  def polling_metrics(_opts) do
     Polling.build(
-      :os_metrics_polling_events,
-      poll_rate,
-      {__MODULE__, :execute_metrics, []},
+      :os_metrics_polling,
+      5_000,  # Poll every 5s
+      {__MODULE__, :execute_os_metrics, []},
       [
-        last_value("user_svc.os.cpu_utilization",
-          event_name: [:user_svc, :os, :cpu],
-          measurement: :utilization,
-          description: "CPU utilization percentage"
-        ),
-        last_value("user_svc.os.memory_utilization",
-          event_name: [:user_svc, :os, :memory],
-          measurement: :utilization,
-          description: "Memory utilization percentage"
+        last_value("prom_ex.os_mon.cpu_util",
+          event_name: [:prom_ex, :os_mon, :cpu],
+          measurement: :utilization
         )
       ]
     )
   end
 
-  def execute_metrics do
+  def execute_os_metrics do
     cpu = :cpu_sup.util() |> List.first()
-    {total_mem, alloc_mem, _} = :memsup.get_memory_data()
-    mem_percent = (alloc_mem / total_mem) * 100
+    :telemetry.execute([:prom_ex, :os_mon, :cpu], %{utilization: cpu}, %{})
+  end
+end
+```
 
-    :telemetry.execute([:user_svc, :os, :cpu], %{utilization: cpu}, %{})
-    :telemetry.execute([:user_svc, :os, :memory], %{utilization: mem_percent}, %{})
+**2. Event-based: NATS Metrics** ([libs/metrics/lib/nats_metrics.ex](libs/metrics/lib/nats_metrics.ex))
+
+Subscribes to Gnat telemetry events (published on every NATS operation):
+
+```elixir
+defmodule PromExPlugin.NatsMetrics do
+  use PromEx.Plugin
+
+  @impl true
+  def event_metrics(_opts) do
+    [
+      Event.build(
+        :gnat_telemetry,
+        [
+          distribution("gnat.pub.duration.microseconds",
+            event_name: [:gnat, :pub],
+            measurement: :duration,
+            tags: [:topic],
+            unit: {:native, :microsecond}
+          ),
+          counter("gnat.message.received.total",
+            event_name: [:gnat, :message_received],
+            tags: [:topic]
+          )
+        ]
+      )
+    ]
+  end
+end
+```
+
+**3. Event-based: Image Conversion Metrics** ([apps/image_svc/lib/prom_ex_plugins/image_conversion_metrics.ex](apps/image_svc/lib/prom_ex_plugins/image_conversion_metrics.ex))
+
+Subscribes to custom telemetry events emitted during image processing:
+
+```elixir
+defmodule PromExPlugin.ImageConversionMetrics do
+  use PromEx.Plugin
+
+  @impl true
+  def event_metrics(_opts) do
+    [
+      Event.build(
+        :image_conversion,
+        [
+          distribution("image_conversion.duration.milliseconds",
+            event_name: [:image_svc, :conversion, :complete],
+            measurement: :duration,
+            tags: [:quality, :method],
+            unit: :millisecond
+          ),
+          distribution("image_conversion.output_size.bytes",
+            event_name: [:image_svc, :conversion, :complete],
+            measurement: :size_bytes,
+            tags: [:quality]
+          ),
+          counter("image_conversion.total",
+            event_name: [:image_svc, :conversion, :complete],
+            tags: [:quality, :method]
+          )
+        ]
+      )
+    ]
   end
 end
 ```
@@ -1566,26 +1702,7 @@ end
 
 ![OS metrics dashboard](priv/cust-promex.png)
 
-**Exporting dashboards**:
-
-```sh
-# Generate PromEx config
-mix prom_ex.gen.config --datasource prometheus
-
-# Export dashboard to JSON
-mix prom_ex.dashboard.export \
-  --dashboard application.json \
-  --module UserService.PromEx \
-  --file_path ../../o11y_configs/grafana/dashboards/user_svc_application.json
-
-# Batch export for all services
-for service in user_svc image_svc email_svc client_svc; do
-  cd apps/$service
-  mix prom_ex.dashboard.export --dashboard beam.json --module "${service^}.PromEx" \
-    --stdout > ../../o11y_configs/grafana/dashboards/${service}_beam.json
-  cd ../..
-done
-```
+**Managing Custom Dashboards**: See [o11y_configs/grafana/dashboards/README.md](o11y_configs/grafana/dashboards/README.md) for import instructions.
 
 #### NATS Metrics (Gnat Telemetry)
 
@@ -1595,13 +1712,13 @@ done
 
 **Metrics exposed via PromExPlugin.NatsMetrics** ([libs/nats_metrics/lib/nats_metrics.ex](libs/nats_metrics/lib/nats_metrics.ex)):
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `gnat_pub_duration_microseconds` | Histogram | How long does `Gnat.pub()` take? |
-| `gnat_message_received_total` | Counter | Messages received per topic |
-| `gnat_request_duration_microseconds` | Histogram | Request/reply latency |
-| `gnat_subscription_total` | Counter | Subscriptions created |
-| `gnat_unsubscription_total` | Counter | Unsubscriptions |
+| Metric                               | Type      | Description                      |
+| ------------------------------------ | --------- | -------------------------------- |
+| `gnat_pub_duration_microseconds`     | Histogram | How long does `Gnat.pub()` take? |
+| `gnat_message_received_total`        | Counter   | Messages received per topic      |
+| `gnat_request_duration_microseconds` | Histogram | Request/reply latency            |
+| `gnat_subscription_total`            | Counter   | Subscriptions created            |
+| `gnat_unsubscription_total`          | Counter   | Unsubscriptions                  |
 
 **Example PromQL queries**:
 
@@ -1626,16 +1743,7 @@ sum(rate(gnat_message_received_total[5m]))
   by (topic)
 ```
 
-**Debugging scenario: "Why is email_svc slow?"**
-
-Without NATS metrics:
-
-```text
-Check Jaeger → See 500ms delay between user_svc and email_svc
-Where's the bottleneck? 🤷
-```
-
-With NATS metrics:
+**Debugging scenario: "Why is email_svc slow?"**:v With NATS metrics:
 
 ```promql
 gnat_pub_duration_microseconds{topic="email.send"} → 5ms (NATS is fast ✅)

@@ -25,6 +25,7 @@ This directory contains exported PromEx dashboards for your microservices.
 
 - `user_svc_application.json` - Application metrics (uptime, memory, etc.)
 - `user_svc_beam.json` - BEAM VM metrics (processes, schedulers, etc.)
+- `image_svc_broadway.json` - Broadway pipeline metrics (message processing, concurrency, throughput)
 
 ### Option 2: Auto-Provisioning (Automatic on Container Start)
 
