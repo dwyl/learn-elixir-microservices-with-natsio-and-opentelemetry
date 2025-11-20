@@ -1,4 +1,4 @@
-# S3 Streaming Image Conversion Test
+# LiveBook runner: Image Conversion Tests
 
 ```elixir
 Mix.install([
@@ -7,11 +7,7 @@ Mix.install([
   {:kino, "~> 0.17.0"},
   {:protobuf, "~> 0.15.0"}
 ])
-```
 
-## Setup Connection
-
-```elixir
 # Set cookie to match your services
 Node.set_cookie(:msvc_dev_cookie_change_in_production)
 #Node.connect(:"user_svc@user_svc.msvc")
@@ -21,14 +17,43 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
   Node.connect(:"image_svc_1@image_svc_1.msvc"),
   Node.connect(:"image_svc_2@image_svc_2.msvc")
 }
-
 ```
 
-### Visite the observables:
+## Dashboard observables selection
 
-* [Jaeger](http://jaeger:16686): traces and spans
-* [Prometheus](http://prometheus:9090): metrics
-* [Grafana](http://grafan:3000): dashboards
+### [JAEGER TRACES ](http://jaeger:16686) : http://jaeger:16686
+
+### [PROMETHEUS METRICS](http://prometheus:9090): http://prometheus:9090
+
+### [MINIO LOCAL S3 STORAGE](http://minio:9001) :http://minio:9001
+
+### [GRAFANA DASHBOARDS](http://grafana:3000): http://grafana:3000
+
+## Architecture Overview with two Image services
+
+<!-- Learn more at https://mermaid-js.github.io/mermaid -->
+
+```mermaid
+architecture-beta
+    service lvb(cloud)[LiveBook] in api
+    group api(cloud)[API]
+    service nats(internet)[NATS JetStream] in api
+    service client(internet)[Client] in api
+    service s3(disk)[S3 MinIO] in api
+    service user(server)[User Service] in api
+    service email(internet)[Email Service] in api
+    service image(disk)[Image1 Service] in api
+    service image2(disk)[Image2 Service] in api
+
+    lvb:R -- L:client
+    client:T -- B:nats
+    image:R -- L:nats
+    email:L -- R:nats
+    nats:T -- B:user
+    s3:R -- L:user
+    image:T -- B:s3
+    image2:R -- L:image
+```
 
 ## Generate Large Colorful Test Image
 
