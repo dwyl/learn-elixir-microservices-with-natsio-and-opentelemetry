@@ -24,6 +24,12 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 
 ```
 
+### Visite the observables:
+
+* [Jaeger](http://jaeger:16686): traces and spans
+* [Prometheus](http://prometheus:9090): metrics
+* [Grafana](http://grafan:3000): dashboards
+
 ## Generate Large Colorful Test Image
 
 ```elixir
@@ -49,7 +55,7 @@ bin = File.read!(path)
 
 ```elixir
 Stream.interval(50)
-|> Stream.take(500)
+|> Stream.take(1000)
 |> Task.async_stream(
   fn i ->
     :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "user#{i}@com"])
