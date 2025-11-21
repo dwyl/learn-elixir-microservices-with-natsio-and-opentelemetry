@@ -21,13 +21,13 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 
 ## Dashboard observables selection
 
-### [JAEGER TRACES ](http://jaeger:16686) : http://jaeger:16686
+### [JAEGER TRACES ](http://jaeger.localhost:8080)
 
-### [PROMETHEUS METRICS](http://prometheus:9090): http://prometheus:9090
+### [PROMETHEUS METRICS](http://prometheus.localhost:8080)
 
-### [MINIO LOCAL S3 STORAGE](http://minio:9001) :http://minio:9001
+### [MINIO LOCAL S3 STORAGE](http://minio.localhost:8080)
 
-### [GRAFANA DASHBOARDS](http://grafana:3000): http://grafana:3000
+### [GRAFANA DASHBOARDS](http://grafana.localhost:8080)
 
 ## Architecture Overview with two Image services
 
@@ -53,7 +53,33 @@ architecture-beta
     s3:R -- L:user
     image:T -- B:s3
     image2:R -- L:image
+
+    group obs(cloud)[O11Y]
+      service loki(server)[Loki] in obs
+      service promtail(server)[Promtail] in obs
+      service prome(server)[Prometheus] in obs
+      service jaeger(server)[Jaeger] in obs
+      service graf(server)[Grafana] in obs
+
+      promtail:R -- L:loki
+      loki:T -- B:graf
+      prome:R -- L:graf
+      jaeger:L -- R:graf
+    
 ```
+
+<!-- livebook:{"break_markdown":true} -->
+
+#### Observability Stack Component Roles
+
+| Component  | Observability Pillar | Primary Role                                           | What it "Scrapes/Collects"                                                                             | Collection Method                                                                                                                     |
+| ---------- | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Promtail   | Logs                 | Log collection and shipping agent                      | Local Log Files (e.g., /var/log/*.log, stdout/stderr from containers), and systemd Journal             | Push Model: Tails log files, adds Prometheus-style labels (metadata), and pushes them via HTTP to Loki's /loki/api/v1/push endpoint   |
+| Loki       | Logs                 | Highly scalable log aggregation backend                | Log streams (pushed by Promtail)                                                                       | Ingestion/Storage: Stores compressed, unstructured log data, but indexes only the labels (metadata) for cost efficiency               |
+| Prometheus | Metrics              | Time-series metrics collection and storage             | /metrics endpoints exposed by applications or exporters                                                | Pull Model (Scraping): Periodically makes an HTTP GET request to a target's /metrics endpoint to pull the latest state of all metrics |
+| Tempo      | Traces               | High-scale, cost-effective distributed tracing backend | Trace Spans (e.g., OpenTelemetry, Jaeger, Zipkin formats) from instrumented applications or collectors | Push Model: Receives traces via its gRPC or HTTP endpoints from agents (like the OpenTelemetry Collector)                             |
+
+| Jaeger | Traces | A separate, alternative distributed tracing backend | Trace Spans (received from instrumented applications or agents)| Push Model: Receives traces via its own agent/collector endpoints. Tempo can often ingest Jaeger-formatted traces, allowing it to act as a Jaeger replacement.
 
 ## Generate Large Colorful Test Image
 
@@ -78,9 +104,26 @@ path = Kino.Input.file_path(value.file_ref)
 bin = File.read!(path)
 ```
 
+#### Send small image conversion request every 50ms
+
 ```elixir
 Stream.interval(50)
-|> Stream.take(1000)
+|> Stream.take(5000)
+|> Task.async_stream(
+  fn i ->
+    :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "user#{i}@com"])
+    end,
+  ordered: false,
+  max_concurrency: 10  
+)
+|> Stream.run()
+```
+
+#### Send concurrently 100 small image conversion requests
+
+```elixir
+1..100
+|> Enum.to_list()
 |> Task.async_stream(
   fn i ->
     :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "user#{i}@com"])

@@ -8,7 +8,7 @@ A **Phoenix/Elixir microservices** proof-of-concept addressing three core challe
 
 We demonstrate both CPU-intensive (PNG-to-PDF conversion with S3 streaming) and I/O-bound (email sending) workloads.
 
-**What we DON'T cover**: Data consistency (sagas, event sourcing), deployment orchestration beyond `docker-compose`, or service discovery (service mesh).
+**What we DON'T cover**: Data consistency (sagas, event sourcing), deployment orchestration beyond `docker compose`, or service discovery (service mesh).
 
 ---
 
@@ -69,19 +69,6 @@ JetStream lacks:
 - **Message replay**: Your cache service crashed? Replay all past events to rebuild it
 - **High throughput**: Handle 10,000+ messages/sec across multiple servers easily
 
-**Example: Message Replay for Cache Rehydration**:
-
-```elixir
-# Create a consumer that replays ALL messages from the beginning
-%{
-  stream_name: "IMAGES",
-  durable_name: "cache_rehydrator",
-  deliver_policy: :all,          # Start from the first message
-  replay_policy: :instant,       # Deliver as fast as possible (not :original timing)
-  ack_policy: :explicit
-}
-```
-
 **Real-world decision guide**:
 
 | What you're building                | Use this  | Why                                                               |
@@ -124,6 +111,7 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
   - [What This Demo Covers](#what-this-demo-covers)
     - [Architecture Patterns](#architecture-patterns)
     - [Observability (OpenTelemetry)](#observability-opentelemetry)
+    - [Mono-repo](#mono-repo)
   - [Prerequisites](#prerequisites)
     - [System Requirements](#system-requirements)
   - [Quick Start](#quick-start)
@@ -265,6 +253,38 @@ This demo shows how to build and instrument such a system and how to use the asy
 - **Unified dashboards** in Grafana
 - **Span links** for async callback correlation
 
+### Mono-repo
+
+The code base is a mono-repo with shared libraries.
+
+```txt
+
+├── apps/
+│   ├── user_svc/
+│   ├── client_svc/
+│   ├──...
+│     
+├── libs/
+│   ├── custom_metrics/ 
+│   ├── protos/
+│   ├── storage/
+│   ├──...
+│
+├── o11y_configs/
+│   ├── grafana/ 
+│   ├── prometheus/
+│   ├── ...
+│
+├─ docker-compose-xxx.yml
+└─ .env
+```
+
+Not all observability processes accept environment variables in the configuration.
+
+The easiest way is to hard them in this demo. You can however exhibit a script to interpolate ports (eg Prometheus).
+
+On the other side, [Tempo](https://grafana.com/docs/tempo/latest/configuration/#use-environment-variables-in-the-configuration) accepts env vars.
+
 ---
 
 ## Prerequisites
@@ -372,6 +392,19 @@ Unlike core NATS (fire-and-forget), JetStream provides:
 - ✅ **Message replay** - Reprocess historical messages if needed
 - ✅ **Horizontal scaling** - Add more consumers for parallelism
 
+**Example: Message Replay for Cache Rehydration**:
+
+```elixir
+# Create a consumer that replays ALL messages from the beginning
+%{
+  stream_name: "IMAGES",
+  durable_name: "cache_rehydrator",
+  deliver_policy: :all,          # Start from the first message
+  replay_policy: :instant,       # Deliver as fast as possible (not :original timing)
+  ack_policy: :explicit
+}
+```
+
 **Broadway** is the perfect complement:
 
 - Consumes from JetStream subjects
@@ -391,7 +424,6 @@ There is a concept of _queue group_ and _durable consumer_ in NATS.
 
 Streams are defined in configuration files and set up automatically at service startup.
 **Example**: Image conversion stream ([libs/jetstream_setup/priv/image_svc.exs](libs/jetstream_setup/priv/image_svc.exs)). We define the stream "IMAGES" with two _durable consumers_.
-
 
 ```elixir
 # config/jetstream_setup.exs for image_svc
@@ -1510,7 +1542,7 @@ scrape_configs:
 flowchart LR
     Code[Code<br> Libraries] -->|emit events| Telemetry[Erlang telemetry]
     Telemetry -->|subscribe| PromEx[PromEx<br>Metrics Exporter]
-    PromEx -->|expose| Endpoint[/metrics endpoint]
+    PromEx -->|expose| Endpoint[metrics endpoint]
     Endpoint -->|GET every 15s<br>PULL| Prometheus
     Prometheus -->|PromQL| Grafana
 ```

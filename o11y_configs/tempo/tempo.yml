@@ -21,7 +21,7 @@ ingester:
 
 compactor:
   compaction:
-    block_retention: 168h  # 7 days (adjust based on your needs)
+    block_retention: 168h # 7 days (adjust based on your needs)
 
 storage:
   trace:
@@ -37,11 +37,11 @@ storage:
 
     # MinIO (S3-compatible) backend configuration
     s3:
-      bucket: tempo-traces                # Must match MinIO bucket created by minio-init
-      endpoint: minio:9000                # Docker service name
-      access_key: minioadmin              # Match your MINIO_ROOT_USER
-      secret_key: minioadmin              # Match your MINIO_ROOT_PASSWORD
-      insecure: true                      # Use HTTP (not HTTPS) for local development
+      bucket: tempo-traces # Must match MinIO bucket created by minio-init
+      endpoint: minio:9000 # Docker service name
+      access_key: ${MINIO_ROOT_USER:-minioadmin} # Match your MINIO_ROOT_USER
+      secret_key: ${MINIO_ROOT_PASSWORD:-minioadmin} # Match your MINIO_ROOT_PASSWORD
+      insecure: true # Use HTTP (not HTTPS) for local development
       # For production with HTTPS:
       # insecure: false
       # tls_insecure_skip_verify: false
@@ -50,7 +50,7 @@ storage:
 query_frontend:
   search:
     duration_slo: 5s
-    throughput_bytes_slo: 1.073741824e+09  # 1GB/s
+    throughput_bytes_slo: 1.073741824e+09 # 1GB/s
   trace_by_id:
     duration_slo: 5s
 
@@ -63,12 +63,12 @@ metrics_generator:
   storage:
     path: /tmp/tempo/generator/wal
     remote_write:
-      - url: http://prometheus:9090/api/v1/write  # Send Tempo metrics to Prometheus
+      - url: http://prometheus:9090/api/v1/write # Send Tempo metrics to Prometheus
         send_exemplars: true
   processor:
     local_blocks:
-      filter_server_spans: false  # Include all spans in local blocks
+      filter_server_spans: false # Include all spans in local blocks
 
 # Overrides and limits
 overrides:
-  metrics_generator_processors: [service-graphs, span-metrics, local-blocks]  # Enable RED metrics + TraceQL metrics
+  metrics_generator_processors: [service-graphs, span-metrics, local-blocks] # Enable RED metrics + TraceQL metrics
