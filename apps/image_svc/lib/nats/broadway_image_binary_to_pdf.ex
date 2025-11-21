@@ -68,7 +68,7 @@ defmodule Broadway.Images.BinaryToPdf do
         {:image_data, binary} = req.source
 
         response_binary =
-          build_ack_response(
+          build_success_response(
             byte_size(binary),
             output_size,
             pdf_url,
@@ -84,6 +84,13 @@ defmodule Broadway.Images.BinaryToPdf do
       {:error, reason} ->
         Logger.error("[Broadway] Conversion failed: #{inspect(reason)}")
         OpenTelemetry.Tracer.set_status(:error, "Conversion failed")
+
+        # Send failure response back to user_svc so client knows it failed
+        response_binary = build_failure_response(req.job_id, req.user_email, reason)
+        trace_headers = OtelNats.inject_with_link()
+        :ok = Gnat.pub(:gnat, "user.image.converted", response_binary, headers: trace_headers)
+
+        # Still return error so Broadway NACKs for retry (with max attempts)
         {:error, reason}
     end
   end
@@ -134,7 +141,7 @@ defmodule Broadway.Images.BinaryToPdf do
     end
   end
 
-  defp build_ack_response(input_size, output_size, pdf_url, job_id, user_email) do
+  defp build_success_response(input_size, output_size, pdf_url, job_id, user_email) do
     %Mcsv.V3.ImageConversionResponse{
       success: true,
       message: "Conversion completed",
@@ -144,6 +151,28 @@ defmodule Broadway.Images.BinaryToPdf do
       height: 0,
       job_id: job_id,
       pdf_url: pdf_url,
+      user_email: user_email
+    }
+    |> Mcsv.V3.ImageConversionResponse.encode()
+  end
+
+  defp build_failure_response(job_id, user_email, reason) do
+    error_message =
+      case reason do
+        {:s3_download_failed, status} -> "S3 download failed: HTTP #{status}"
+        :conversion_failed -> "ImageMagick conversion failed"
+        other -> "Conversion error: #{inspect(other)}"
+      end
+
+    %Mcsv.V3.ImageConversionResponse{
+      success: false,
+      message: error_message,
+      input_size: 0,
+      output_size: 0,
+      width: 0,
+      height: 0,
+      job_id: job_id,
+      pdf_url: "",
       user_email: user_email
     }
     |> Mcsv.V3.ImageConversionResponse.encode()

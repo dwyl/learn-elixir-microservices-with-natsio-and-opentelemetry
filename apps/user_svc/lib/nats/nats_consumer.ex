@@ -67,11 +67,19 @@ defmodule UserService.NatsConsumer do
     _token = OtelNats.extract_and_attach(headers)
     link = OtelNats.extract_link(headers)
 
+    # Decode response to log success/failure details
+    %Mcsv.V3.ImageConversionResponse{} = response = Mcsv.V3.ImageConversionResponse.decode(body)
+
     # Create span with link to the Image service's conversion span
     span_opts = if link, do: %{links: [link]}, else: %{}
 
     Tracer.with_span "UserSvc.NatsConsumer.image.converted", span_opts do
-      Logger.info("[NatsConsumer] Image converted")
+      if response.success do
+        Logger.info("[NatsConsumer] ✅ Image conversion succeeded (job_id: #{response.job_id}, size: #{response.output_size}B)")
+      else
+        Logger.error("[NatsConsumer] ❌ Image conversion failed (job_id: #{response.job_id}, error: #{response.message})")
+        OpenTelemetry.Tracer.set_status(:error, "Image conversion failed: #{response.message}")
+      end
 
       # Inject trace context into outgoing message (keep the link chain going)
       trace_headers = OtelNats.inject_with_link()
@@ -115,10 +123,25 @@ defmodule UserService.NatsConsumer do
     Tracer.with_span "UserSvc.NatsConsumer.convert.url.to_pdf" do
       req = Mcsv.V3.ImageConversionRequest.decode(body)
 
-      # Inject trace context for outgoing message
-      trace_headers = OtelNats.inject()
-      :ok = forward_url_to_image_svc(req, trace_headers)
-      :ok
+      # Validate S3 object exists before forwarding to image service
+      case validate_s3_source(req) do
+        :ok ->
+          # Inject trace context for outgoing message
+          trace_headers = OtelNats.inject()
+          :ok = forward_url_to_image_svc(req, trace_headers)
+          :ok
+
+        {:error, reason} ->
+          Logger.error(
+            "[NatsConsumer] S3 validation failed for job_id #{req.job_id}: #{inspect(reason)}"
+          )
+
+          OpenTelemetry.Tracer.set_status(:error, "S3 source validation failed")
+
+          # Send immediate failure response back to client
+          send_validation_failure_response(req, reason)
+          {:error, reason}
+      end
     end
   end
 
@@ -148,7 +171,7 @@ defmodule UserService.NatsConsumer do
     img = Mcsv.V3.ImageConversionRequest.encode(req)
 
     :ok = Gnat.pub(:gnat, "image.convert.binary.to_pdf", img, headers: trace_headers)
-    Logger.info("[NatsConsumer] Image conversion request from binary sent to Image")
+    Logger.info("[NatsConsumer] Forwarded binary image conversion request to image_svc (job_id: #{req.job_id})")
     :ok
   end
 
@@ -156,7 +179,59 @@ defmodule UserService.NatsConsumer do
     # Request already has source: {:s3_ref, %{...}} - just encode as-is
     img = Mcsv.V3.ImageConversionRequest.encode(req)
 
-    Logger.info("[NatsConsumer] Image conversion request from key sent to Image")
     :ok = Gnat.pub(:gnat, "image.convert.url.to_pdf", img, headers: trace_headers)
+    Logger.info("[NatsConsumer] Forwarded S3 image conversion request to image_svc (job_id: #{req.job_id})")
+    :ok
+  end
+
+  defp validate_s3_source(%{source: {:s3_ref, %{bucket: bucket, key: key}}} = _req) do
+    s3_opts = ReqS3Storage.build_s3_opts(:user_svc)
+
+    case ReqS3Storage.head_object(bucket, key, s3_opts) do
+      {:ok, _metadata} ->
+        Logger.debug("[NatsConsumer] S3 validation passed: #{bucket}/#{key} exists")
+        :ok
+
+      {:error, %{status: 404}} ->
+        Logger.error("[NatsConsumer] S3 validation failed: #{bucket}/#{key} not found (404)")
+        {:error, :s3_object_not_found}
+
+      {:error, reason} ->
+        Logger.error("[NatsConsumer] S3 validation failed: #{bucket}/#{key} error: #{inspect(reason)}")
+        {:error, :s3_validation_error}
+    end
+  end
+
+  defp validate_s3_source(_req) do
+    # Not an S3 source (binary data), no validation needed
+    :ok
+  end
+
+  defp send_validation_failure_response(req, reason) do
+    error_message =
+      case reason do
+        :s3_object_not_found -> "Source image not found in S3"
+        :s3_validation_error -> "Failed to validate S3 source"
+        other -> "Validation error: #{inspect(other)}"
+      end
+
+    response_binary =
+      %Mcsv.V3.ImageConversionResponse{
+        success: false,
+        message: error_message,
+        input_size: 0,
+        output_size: 0,
+        width: 0,
+        height: 0,
+        job_id: req.job_id,
+        pdf_url: "",
+        user_email: req.user_email
+      }
+      |> Mcsv.V3.ImageConversionResponse.encode()
+
+    trace_headers = OtelNats.inject_with_link()
+    :ok = Gnat.pub(:gnat, "client.image.converted", response_binary, headers: trace_headers)
+
+    Logger.error("[NatsConsumer] Sent validation failure response for job_id #{req.job_id}")
   end
 end

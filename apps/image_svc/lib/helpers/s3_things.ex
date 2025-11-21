@@ -6,16 +6,8 @@ defmodule S3Things do
   require Logger
 
   def s3_opts do
-    s3_config = Application.get_env(:image_svc, :s3, [])
-
-    [
-      object_storage_endpoint:
-        Keyword.get(s3_config, :object_storage_endpoint, "http://localhost:9000"),
-      access_key_id: Keyword.get(s3_config, :access_key_id, "minioadmin"),
-      secret_access_key: Keyword.get(s3_config, :secret_access_key, "minioadmin"),
-      region: Keyword.get(s3_config, :region, "us-east-1"),
-      expiry_bucket_retention: Keyword.get(s3_config, :expiry_bucket_retention, 3600)
-    ]
+    # Delegate to the centralized ReqS3Storage helper
+    ReqS3Storage.build_s3_opts(:image_svc)
   end
 
   def generate_s3_url(bucket, key) do

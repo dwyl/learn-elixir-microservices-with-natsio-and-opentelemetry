@@ -1,16 +1,17 @@
-# LiveBook runner: Image Conversion Tests
+# Livebook runner
 
 ```elixir
 Mix.install([
   {:vix, "~> 0.35.0"},
   {:req, "~> 0.5"},
   {:kino, "~> 0.17.0"},
-  {:protobuf, "~> 0.15.0"}
+  {:protobuf, "~> 0.15.0"},
+  {:ex_image_info, "~> 1.0"}
 ])
 
 # Set cookie to match your services
 Node.set_cookie(:msvc_dev_cookie_change_in_production)
-#Node.connect(:"user_svc@user_svc.msvc")
+# Node.connect(:"user_svc@user_svc.msvc")
 {
   Node.connect(:"user_svc@user_svc.msvc"),
   Node.connect(:"client_svc@client_svc.msvc"),
@@ -94,19 +95,30 @@ architecture-beta
 # IO.puts("Generated image: #{byte_size(bin_png)} bytes (#{Float.round(byte_size(bin_png) / 1_000_000, 2)} MB)")
 ```
 
+## Import images
+
 ```elixir
-file = Kino.Input.file("add")
+file = Kino.Input.file("Click below to import an image")
 ```
 
 ```elixir
 value = Kino.Input.read(file)
 path = Kino.Input.file_path(value.file_ref)
 bin = File.read!(path)
+{mime, h,w,ext} = ExImageInfo.info(bin)
+
+if not(Enum.member?(["image/png", "image/jpeg"], mime)), do: raise "not an image"
+
+bin
 ```
 
-#### Send small image conversion request every 50ms
+## Process binary small images (<1MB)
+
+#### Send small image conversion request every 50ms: `Image.convert_bin()`
 
 ```elixir
+if (byte_size(bin)> 1_000_000), do: raise "too big"
+
 Stream.interval(50)
 |> Stream.take(5000)
 |> Task.async_stream(
@@ -119,9 +131,11 @@ Stream.interval(50)
 |> Stream.run()
 ```
 
-#### Send concurrently 100 small image conversion requests
+#### Send concurrently 100 small image conversion requests to `Image.convert_bin()`
 
 ```elixir
+if (byte_size(bin)> 1_000_000), do: raise "too big"
+
 1..100
 |> Enum.to_list()
 |> Task.async_stream(
@@ -144,7 +158,9 @@ s3_opts = [
   secret_access_key: "minioadmin",
   region: "us-east-1"
 ]
+```
 
+```elixir
 # Generate unique job ID
 job_id = "large_test_#{System.system_time(:second)}"
 
@@ -157,6 +173,9 @@ job_id = "large_test_#{System.system_time(:second)}"
   [bin, "msvc-images", job_id, "image/png", s3_opts]
 )
 
+
+
+
 IO.puts("✅ Uploaded to S3")
 IO.puts("   Bucket: #{upload_result.bucket}")
 IO.puts("   Key: #{upload_result.key}")
@@ -166,91 +185,10 @@ IO.puts("   Presigned URL: #{String.slice(upload_result.presigned_url, 0..80)}..
 upload_result
 ```
 
-```elixir
-defmodule Mcsv.V3.S3Reference do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :bucket, 1, type: :string
-  field :key, 2, type: :string
-  field :presigned_url, 3, type: :string, json_name: "presignedUrl"
-end
-
-defmodule Mcsv.V3.ImageConversionRequest do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  oneof :source, 0
-
-  field :user_id, 1, type: :string, json_name: "userId"
-  field :user_email, 2, type: :string, json_name: "userEmail"
-  field :image_data, 10, type: :bytes, json_name: "imageData", oneof: 0
-  field :image_url, 3, type: :string, json_name: "imageUrl", oneof: 0, deprecated: true
-  field :s3_ref, 11, type: Mcsv.V3.S3Reference, json_name: "s3Ref", oneof: 0
-  field :input_format, 4, type: :string, json_name: "inputFormat"
-  field :pdf_quality, 5, type: :string, json_name: "pdfQuality"
-  field :strip_metadata, 6, type: :bool, json_name: "stripMetadata"
-  field :max_width, 7, type: :int32, json_name: "maxWidth"
-  field :max_height, 8, type: :int32, json_name: "maxHeight"
-  field :job_id, 9, type: :string, json_name: "jobId"
-end
-
-defmodule Mcsv.V3.ImageConversionResponse do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :success, 1, type: :bool
-  field :message, 2, type: :string
-  field :input_size, 4, type: :int64, json_name: "inputSize"
-  field :output_size, 5, type: :int64, json_name: "outputSize"
-  field :width, 6, type: :int32
-  field :height, 7, type: :int32
-  field :job_id, 8, type: :string, json_name: "jobId"
-  field :pdf_url, 9, type: :string, json_name: "pdfUrl"
-  field :user_email, 10, type: :string, json_name: "userEmail"
-end
-
-```
-
 ## Send Conversion Request with S3 Reference
 
 ```elixir
-# Build S3 reference protobuf message
-s3_ref = %Mcsv.V3.S3Reference{
-  bucket: upload_result.bucket,
-  key: upload_result.key,
-  presigned_url: upload_result.presigned_url
-}
-
-# Build conversion request with oneof source = s3_ref
-request = %Mcsv.V3.ImageConversionRequest{
-  user_id: "test_user",
-  user_email: "test@example.com",
-  source: {:s3_ref, s3_ref},  # Using oneof source!
-  input_format: "png",
-  pdf_quality: "high",
-  strip_metadata: false,
-  max_width: 0,
-  max_height: 0,
-  job_id: job_id
-}
-
-# Encode and publish to NATS
-request_binary = Mcsv.V3.ImageConversionRequest.encode(request)
-
-#:erpc.call(
-#  :"client_svc@client_svc.msvc",
-#  Gnat,
-#  :pub,
-#  [:gnat, "image.convert.url.to_pdf", request_binary]
-#)
-
 key = upload_result.key
- |> dbg()
-
 
 :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_from_s3, [key, "m@com"])
 # :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "m@com"])
@@ -261,16 +199,23 @@ key = upload_result.key
 ```
 
 ```elixir
-1..50
-|> Enum.to_list()
+Stream.interval(200)
+|>  Stream.take(500)
 |>Task.async_stream(
   fn i ->  
-    :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_from_s3, [key, "m#{i}@com"])
+    :erpc.call(
+      :"client_svc@client_svc.msvc", 
+      Image, 
+      :convert_from_s3, 
+      [upload_result.key, "m#{i}@com"]
+    )
   end,
   ordered: false,
   max_concurrency: 10
 )
 |> Stream.run()
+
+
 ```
 
 ## Monitor Conversion (Listen for Response)

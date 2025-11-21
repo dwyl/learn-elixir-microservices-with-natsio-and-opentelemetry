@@ -17,14 +17,14 @@ defmodule Broadway.Images.UrlToPdf do
           connection_name: :gnat,
           stream_name: "IMAGES",
           consumer_name: "url_to_pdf",
-          max_number_of_messages: 50,
-          receive_interval: 10
+          max_number_of_messages: 5,
+          receive_interval: 300
         },
-        concurrency: 2
+        concurrency: 1
       ],
       processors: [
         # Increase processor concurrency for parallel S3 streaming conversions
-        im: [concurrency: 8]
+        im: [concurrency: 3]
       ]
     )
   end
@@ -67,7 +67,7 @@ defmodule Broadway.Images.UrlToPdf do
         pdf_url = ReqS3Storage.generate_presigned_url(bucket, key, S3Things.s3_opts())
 
         response_binary =
-          build_ack_response(
+          build_success_response(
             0,
             # Size unknown for S3 source
             output_size,
@@ -84,6 +84,13 @@ defmodule Broadway.Images.UrlToPdf do
       {:error, reason} ->
         Logger.error("[Broadway] Streaming conversion failed: #{inspect(reason)}")
         OpenTelemetry.Tracer.set_status(:error, "Streaming conversion failed")
+
+        # Send failure response back to user_svc so client knows it failed
+        response_binary = build_failure_response(req.job_id, req.user_email, reason)
+        trace_headers = OtelNats.inject_with_link()
+        :ok = Gnat.pub(:gnat, "user.image.converted", response_binary, headers: trace_headers)
+
+        # Still return error so Broadway NACKs for retry (with max attempts)
         {:error, reason}
     end
   end
@@ -129,27 +136,31 @@ defmodule Broadway.Images.UrlToPdf do
         "[Broadway] Conversion complete: #{upload_result.bucket}/#{upload_result.key} (#{upload_result.size}B)"
       )
 
-      Logger.info("[Broadway] Spawning cleanup task to delete original image: #{bucket}/#{key}")
-
-      task_result =
-        Task.Supervisor.start_child(
-          ImageService.TaskSupervisor,
-          fn ->
-            Logger.info("[Broadway.Cleanup] Task executing - deleting #{bucket}/#{key}")
-
-            case ReqS3Storage.delete(bucket, key, s3_opts) do
-              :ok ->
-                Logger.info("[Broadway.Cleanup] Successfully deleted original image: #{bucket}/#{key}")
-
-              {:error, reason} ->
-                Logger.error(
-                  "[Broadway.Cleanup] Failed to delete original image #{bucket}/#{key}: #{inspect(reason)}"
-                )
-            end
-          end
-        )
-
-      Logger.info("[Broadway] Cleanup task spawn result: #{inspect(task_result)}")
+      # COMMENTED OUT: Immediate cleanup causes race conditions during load testing
+      # MinIOCleaner handles periodic cleanup of old files (>1h old) every 15 minutes
+      # Logger.info("[Broadway] Spawning cleanup task to delete original image: #{bucket}/#{key}")
+      #
+      # task_result =
+      #   Task.Supervisor.start_child(
+      #     ImageService.TaskSupervisor,
+      #     fn ->
+      #       Logger.info("[Broadway.Cleanup] Task executing - deleting #{bucket}/#{key}")
+      #
+      #       case ReqS3Storage.delete(bucket, key, s3_opts) do
+      #         :ok ->
+      #           Logger.info(
+      #             "[Broadway.Cleanup] Successfully deleted original image: #{bucket}/#{key}"
+      #           )
+      #
+      #         {:error, reason} ->
+      #           Logger.error(
+      #             "[Broadway.Cleanup] Failed to delete original image #{bucket}/#{key}: #{inspect(reason)}"
+      #           )
+      #       end
+      #     end
+      #   )
+      #
+      # Logger.info("[Broadway] Cleanup task spawn result: #{inspect(task_result)}")
 
       OpenTelemetry.Tracer.set_attributes(%{"output_size_bytes" => upload_result.size})
       {:ok, upload_result.bucket, upload_result.key, upload_result.size}
@@ -175,7 +186,7 @@ defmodule Broadway.Images.UrlToPdf do
     end
   end
 
-  defp build_ack_response(input_size, output_size, pdf_url, job_id, user_email) do
+  defp build_success_response(input_size, output_size, pdf_url, job_id, user_email) do
     %Mcsv.V3.ImageConversionResponse{
       success: true,
       message: "Conversion completed",
@@ -185,6 +196,28 @@ defmodule Broadway.Images.UrlToPdf do
       height: 0,
       job_id: job_id,
       pdf_url: pdf_url,
+      user_email: user_email
+    }
+    |> Mcsv.V3.ImageConversionResponse.encode()
+  end
+
+  defp build_failure_response(job_id, user_email, reason) do
+    error_message =
+      case reason do
+        {:s3_download_failed, status} -> "S3 download failed: HTTP #{status}"
+        :conversion_failed -> "ImageMagick conversion failed"
+        other -> "Conversion error: #{inspect(other)}"
+      end
+
+    %Mcsv.V3.ImageConversionResponse{
+      success: false,
+      message: error_message,
+      input_size: 0,
+      output_size: 0,
+      width: 0,
+      height: 0,
+      job_id: job_id,
+      pdf_url: "",
       user_email: user_email
     }
     |> Mcsv.V3.ImageConversionResponse.encode()

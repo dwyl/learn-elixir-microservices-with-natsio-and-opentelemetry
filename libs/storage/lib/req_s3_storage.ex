@@ -10,6 +10,40 @@ defmodule ReqS3Storage do
   require OpenTelemetry.Tracer, as: Tracer
 
   @doc """
+  Build S3 options from application configuration.
+
+  Reads from the specified app's `:s3` config and returns a keyword list
+  suitable for passing to other ReqS3Storage functions.
+
+  ## Parameters
+    - app_name: Application name (e.g., :user_svc, :image_svc)
+
+  ## Returns
+    Keyword list with S3 connection options
+
+  ## Examples
+      iex> ReqS3Storage.build_s3_opts(:user_svc)
+      [
+        object_storage_endpoint: "http://minio:9000",
+        access_key_id: "minioadmin",
+        secret_access_key: "minioadmin",
+        region: "us-east-1",
+        expiry_bucket_retention: 3600
+      ]
+  """
+  def build_s3_opts(app_name) do
+    s3_config = Application.get_env(app_name, :s3, [])
+
+    [
+      object_storage_endpoint: Keyword.get(s3_config, :object_storage_endpoint, "http://localhost:9000"),
+      access_key_id: Keyword.get(s3_config, :access_key_id, "minioadmin"),
+      secret_access_key: Keyword.get(s3_config, :secret_access_key, "minioadmin"),
+      region: Keyword.get(s3_config, :region, "us-east-1"),
+      expiry_bucket_retention: Keyword.get(s3_config, :expiry_bucket_retention, 3600)
+    ]
+  end
+
+  @doc """
   Store binary data in S3/MinIO and return metadata.
 
   ## Parameters
@@ -138,6 +172,82 @@ defmodule ReqS3Storage do
           Logger.error("[ReqS3Storage] Failed to fetch #{bucket}/#{key}: #{inspect(reason)}")
           Tracer.set_status(OpenTelemetry.status(:error, "Fetch failed: #{inspect(reason)}"))
           Tracer.add_event("storage.fetch.failed", [{"error", inspect(reason)}])
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Check if an object exists in S3/MinIO by performing a HEAD request.
+
+  ## Parameters
+    - bucket: S3 bucket name
+    - key: Object key
+    - opts: Keyword list with required fields (same as other functions)
+
+  ## Returns
+    {:ok, %{content_length: integer, last_modified: string, ...}}
+    {:error, %{status: 404}} if not found
+    {:error, reason}
+
+  ## Examples
+      iex> ReqS3Storage.head_object("msvc-images", "test.png",
+      ...>   base_url: "http://localhost:9000",
+      ...>   access_key_id: "minioadmin",
+      ...>   secret_access_key: "minioadmin"
+      ...> )
+      {:ok, %{content_length: 1024, last_modified: "2024-01-01T00:00:00Z"}}
+  """
+  def head_object(bucket, key, opts \\ []) do
+    Tracer.with_span "storage.head_object" do
+      Tracer.set_attributes([
+        {"storage.bucket", bucket},
+        {"storage.key", key}
+      ])
+
+      req = build_req(opts)
+
+      case Req.head(req, url: "s3://#{bucket}/#{key}") do
+        {:ok, %{status: 200, headers: headers} = response} ->
+          # Extract content-length, handling both list and string formats
+          content_length =
+            case headers["content-length"] || headers[:content_length] do
+              [length_str] when is_binary(length_str) -> String.to_integer(length_str)
+              length_str when is_binary(length_str) -> String.to_integer(length_str)
+              length_int when is_integer(length_int) -> length_int
+              _ -> 0
+            end
+
+          # Extract last-modified
+          last_modified =
+            case headers["last-modified"] || headers[:last_modified] do
+              [date_str] -> date_str
+              date_str when is_binary(date_str) -> date_str
+              _ -> nil
+            end
+
+          metadata = %{
+            content_length: content_length,
+            last_modified: last_modified
+          }
+
+          Logger.debug("[ReqS3Storage] HEAD #{bucket}/#{key}: exists (#{metadata.content_length} bytes)")
+          Tracer.set_status(OpenTelemetry.status(:ok))
+          {:ok, metadata}
+
+        {:ok, %{status: 404} = response} ->
+          Logger.debug("[ReqS3Storage] HEAD #{bucket}/#{key}: not found (404)")
+          Tracer.set_status(OpenTelemetry.status(:error, "Object not found"))
+          {:error, response}
+
+        {:ok, %{status: status} = response} ->
+          Logger.error("[ReqS3Storage] HEAD #{bucket}/#{key}: HTTP #{status}")
+          Tracer.set_status(OpenTelemetry.status(:error, "HEAD failed: HTTP #{status}"))
+          {:error, response}
+
+        {:error, reason} ->
+          Logger.error("[ReqS3Storage] HEAD #{bucket}/#{key}: #{inspect(reason)}")
+          Tracer.set_status(OpenTelemetry.status(:error, "HEAD failed: #{inspect(reason)}"))
           {:error, reason}
       end
     end
