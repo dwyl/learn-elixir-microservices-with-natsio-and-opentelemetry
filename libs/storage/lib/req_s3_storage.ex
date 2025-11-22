@@ -35,7 +35,8 @@ defmodule ReqS3Storage do
     s3_config = Application.get_env(app_name, :s3, [])
 
     [
-      object_storage_endpoint: Keyword.get(s3_config, :object_storage_endpoint, "http://localhost:9000"),
+      object_storage_endpoint:
+        Keyword.get(s3_config, :object_storage_endpoint, "http://localhost:9000"),
       access_key_id: Keyword.get(s3_config, :access_key_id, "minioadmin"),
       secret_access_key: Keyword.get(s3_config, :secret_access_key, "minioadmin"),
       region: Keyword.get(s3_config, :region, "us-east-1"),
@@ -208,7 +209,7 @@ defmodule ReqS3Storage do
       req = build_req(opts)
 
       case Req.head(req, url: "s3://#{bucket}/#{key}") do
-        {:ok, %{status: 200, headers: headers} = response} ->
+        {:ok, %Req.Response{status: 200, headers: headers} = _response} ->
           # Extract content-length, handling both list and string formats
           content_length =
             case headers["content-length"] || headers[:content_length] do
@@ -231,7 +232,10 @@ defmodule ReqS3Storage do
             last_modified: last_modified
           }
 
-          Logger.debug("[ReqS3Storage] HEAD #{bucket}/#{key}: exists (#{metadata.content_length} bytes)")
+          Logger.debug(
+            "[ReqS3Storage] HEAD #{bucket}/#{key}: exists (#{metadata.content_length} bytes)"
+          )
+
           Tracer.set_status(OpenTelemetry.status(:ok))
           {:ok, metadata}
 
@@ -311,10 +315,10 @@ defmodule ReqS3Storage do
         # Try different possible nested structures
         contents_raw =
           get_in(body, ["ListBucketResult", "Contents"]) ||
-          get_in(body, [:list_bucket_result, :contents]) ||
-          body["Contents"] ||
-          body[:contents] ||
-          []
+            get_in(body, [:list_bucket_result, :contents]) ||
+            body["Contents"] ||
+            body[:contents] ||
+            []
 
         # S3 XML response can have different structures:
         # - Empty bucket: no contents key
@@ -349,7 +353,9 @@ defmodule ReqS3Storage do
                     {:ok, dt, _} -> dt
                     {:error, _} -> nil
                   end
-                dt -> dt
+
+                dt ->
+                  dt
               end
 
             %{
@@ -517,9 +523,7 @@ defmodule ReqS3Storage do
     "#{timestamp}_#{random}.#{format}"
   end
 
-  # Private helpers
-
-  defp build_req(opts) do
+  def build_req(opts) do
     access_key_id = Keyword.fetch!(opts, :access_key_id)
     secret_access_key = Keyword.fetch!(opts, :secret_access_key)
     object_storage_endpoint = Keyword.fetch!(opts, :object_storage_endpoint)

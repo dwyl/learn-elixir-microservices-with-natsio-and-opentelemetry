@@ -81,7 +81,7 @@ defmodule ImageService.MixProject do
       {:protobuf, "~> 0.15.0"},
       {:otel_nats, path: "../../libs/otel_nats"},
       # process runner
-      {:ex_cmd, "~> 0.16.0"},
+      {:ex_cmd, git: "https://github.com/akash-akya/ex_cmd.git"},
 
       # OpenTelemetry for distributed tracing (exporter MUST be before opentelemetry)
       {:opentelemetry, "~> 1.7"},

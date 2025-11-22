@@ -56,7 +56,7 @@ defmodule IM.Converter do
     # Build S3 request
     %Req.Request{} =
       req =
-      S3Things.build_s3_req(s3_opts)
+      ReqS3Storage.build_req(s3_opts)
 
     Logger.info("[IM.Converter] Starting S3 download")
 

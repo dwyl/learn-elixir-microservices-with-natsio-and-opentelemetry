@@ -187,16 +187,15 @@ upload_result
 
 ## Send Conversion Request with S3 Reference
 
+Test once:
+
 ```elixir
 key = upload_result.key
 
 :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_from_s3, [key, "m@com"])
-# :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "m@com"])
-#IO.puts("✅ Sent conversion request via NATS")
-#IO.puts("   Source: S3 Reference (#{upload_result.bucket}/#{upload_result.key})")
-#IO.puts("   Job ID: #{job_id}")
-#IO.puts("   Quality: high")
 ```
+
+Send request every 200ms to `Image.convert_from_s3()`
 
 ```elixir
 Stream.interval(200)
