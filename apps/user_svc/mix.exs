@@ -71,7 +71,7 @@ defmodule UserService.MixProject do
       {:phoenix, "~> 1.8.1"},
       {:bandit, "~> 1.8"},
       {:ex_image_info, "~> 1.0"},
-      {:gnat, "~> 1.11.1"},
+      {:gnat, "~> 1.12"},
 
       # serializers
       {:jason, "~> 1.4"},

@@ -1,0 +1,612 @@
+# Production Docker Compose Configuration
+# Features:
+# - 2 Image Service instances for load balancing
+# - Resource limits for all services
+# - Restart policies
+# - Secure defaults
+# - Persistent volumes
+
+x-common-depends: &common_depends
+  depends_on:
+    - minio
+    - jaeger
+    - tempo
+    - loki
+    - promtail
+
+x-common-resources: &common_resources
+  deploy:
+    resources:
+      limits:
+        cpus: '1.0'
+        memory: 1G
+      reservations:
+        cpus: '0.5'
+        memory: 512M
+
+services:
+
+  # ============================================
+  # Caddy Reverse Proxy
+  # ============================================
+  caddy:
+    image: caddy:latest
+    container_name: msvc-caddy
+    ports:
+      - "80:80"       # HTTP (will redirect to HTTPS in production)
+      - "443:443"     # HTTPS
+      - "8080:8080"   # Alternative HTTP port (development access)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - msvc
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================
+  # NATS JetStream Message Broker
+  # ============================================
+  nats-server:
+    image: nats:latest
+    container_name: msvc-nats-server
+    hostname: nats-server.msvc
+    ports:
+      - "4222:4222"   # Client connections
+      - "8222:8222"   # HTTP monitoring
+    command: -js --store_dir=/data -m 8222
+    volumes:
+      - nats_data:/data
+    restart: unless-stopped
+    networks:
+      - msvc
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # ============================================
+  # Livebook (Interactive Development)
+  # Optional: Comment out in production if not needed
+  # ============================================
+  livebook:
+    image: ghcr.io/livebook-dev/livebook:latest
+    container_name: msvc-livebook
+    hostname: livebook.msvc
+    ports:
+      - 8090:8090
+      - 8091:8091
+    environment:
+      - LIVEBOOK_BASE_PATH=/
+      - LIVEBOOK_PORT=8090
+      - LIVEBOOK_IFRAME_PORT=8091
+      - LIVEBOOK_DISTRIBUTION=name
+      - LIVEBOOK_COOKIE=${ERL_COOKIE}
+      - LIVEBOOK_PASSWORD=${LIVEBOOK_PASSWORD}
+      - LIVEBOOK_SECRET_KEY_BASE=${LIVEBOOK_SECRET_KEY_BASE}
+      - LIVEBOOK_NODE=livebook@livebook.msvc
+    volumes:
+      - ./apps/notebooks:/data/
+      - ./apps:/workspace/apps:ro
+    networks:
+      - msvc
+    env_file:
+      - .env.staging
+    restart: unless-stopped
+    <<: *common_resources
+
+  # ============================================
+  # User Service (API Gateway)
+  # ============================================
+  user_svc:
+    build:
+      context: .
+      dockerfile: apps/user_svc/Dockerfile
+      args:
+        OS: ${OS}
+        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
+    container_name: msvc-user-svc
+    hostname: user_svc.msvc
+    ports:
+      - "${USER_SVC_PORT}:${USER_SVC_HOST_PORT}"
+    env_file:
+      - .env.staging
+    environment:
+      SERVICE: "user_svc"
+      RELEASE_COOKIE: ${ERL_COOKIE}
+      RELEASE_DISTRIBUTION: "name"
+      RELEASE_NODE: "user_svc@user_svc.msvc"
+      PORT: "${USER_SVC_PORT}"
+      OTEL_SERVICE_NAME: "user_svc"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      MINIO_HOST: "minio"
+      USER_SVC_URL: "http://user_svc:${USER_SVC_PORT}"
+      JOB_SVC_URL: "http://job_svc:${JOB_SVC_PORT}"
+      CLIENT_SVC_URL: "http://client_svc:${CLIENT_SVC_PORT}"
+    <<: *common_depends
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:${USER_SVC_PORT}/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    <<: *common_resources
+
+  # ============================================
+  # Client Service
+  # ============================================
+  client_svc:
+    build:
+      context: .
+      dockerfile: apps/client_svc/Dockerfile
+      args:
+        OS: ${OS}
+        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
+    container_name: msvc-client-svc
+    hostname: client_svc.msvc
+    ports:
+      - "${CLIENT_SVC_PORT}:${CLIENT_SVC_HOST_PORT}"
+    env_file:
+      - .env.staging
+    environment:
+      SERVICE: "client_svc"
+      RELEASE_COOKIE: ${ERL_COOKIE}
+      RELEASE_DISTRIBUTION: "name"
+      RELEASE_NODE: "client_svc@client_svc.msvc"
+      PORT: ${CLIENT_SVC_PORT}
+      OTEL_SERVICE_NAME: "client_svc"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      USER_SVC_URL: "http://user_svc:${USER_SVC_PORT}"
+    <<: *common_depends
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:${CLIENT_SVC_PORT}/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    <<: *common_resources
+
+  # ============================================
+  # Image Service Instance 1 (Load Balanced)
+  # ============================================
+  image_svc_1:
+    build:
+      context: .
+      dockerfile: apps/image_svc/Dockerfile
+      args:
+        OS: ${OS}
+        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
+    container_name: msvc-image-svc-1
+    hostname: image_svc_1.msvc
+    ports:
+      - "${IMAGE_SVC_PORT}:${IMAGE_SVC_HOST_PORT}"
+    env_file:
+      - .env.staging
+    environment:
+      RELEASE_COOKIE: ${ERL_COOKIE}
+      RELEASE_DISTRIBUTION: "name"
+      RELEASE_NODE: "image_svc_1@image_svc_1.msvc"
+      DATABASE_PATH: /app/db/conversion_cache.sql3
+      PORT: ${IMAGE_SVC_PORT}
+      OTEL_SERVICE_NAME: "image_svc_1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      MINIO_HOST: "minio"
+      MINIO_SCHEME: "http://"
+      USER_SVC_URL: "http://user_svc:${USER_SVC_PORT}"
+    <<: *common_depends
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:${IMAGE_SVC_PORT}/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'      # More CPU for image processing
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # ============================================
+  # Image Service Instance 2 (Load Balanced)
+  # ============================================
+  image_svc_2:
+    build:
+      context: .
+      dockerfile: apps/image_svc/Dockerfile
+      args:
+        OS: ${OS}
+        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
+    container_name: msvc-image-svc-2
+    hostname: image_svc_2.msvc
+    ports:
+      - "${IMAGE_SVC_2_PORT}:${IMAGE_SVC_2_HOST_PORT}"
+    env_file:
+      - .env.staging
+    environment:
+      RELEASE_COOKIE: ${ERL_COOKIE}
+      RELEASE_DISTRIBUTION: "name"
+      RELEASE_NODE: "image_svc_2@image_svc_2.msvc"
+      DATABASE_PATH: /app/db/conversion_cache.sql3
+      PORT: ${IMAGE_SVC_2_PORT}
+      OTEL_SERVICE_NAME: "image_svc_2"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      MINIO_HOST: "minio"
+      MINIO_SCHEME: "http://"
+      USER_SVC_URL: "http://user_svc:${USER_SVC_PORT}"
+    <<: *common_depends
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:${IMAGE_SVC_2_PORT}/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'      # More CPU for image processing
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # ============================================
+  # Email Service
+  # ============================================
+  email_svc:
+    build:
+      context: .
+      dockerfile: apps/email_svc/Dockerfile
+      args:
+        OS: ${OS}
+        ELIXIR_IMAGE: ${ELIXIR_IMAGE}
+    container_name: msvc-email-svc
+    hostname: email_svc.msvc
+    ports:
+      - "${EMAIL_SVC_PORT}:${EMAIL_SVC_HOST_PORT}"
+    env_file:
+      - .env.staging
+    environment:
+      RELEASE_COOKIE: ${ERL_COOKIE}
+      RELEASE_DISTRIBUTION: "name"
+      PORT: ${EMAIL_SVC_PORT}
+      OTEL_SERVICE_NAME: "email_svc"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      MAILER_ADAPTER: "local"
+    <<: *common_depends
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:${EMAIL_SVC_PORT}/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    <<: *common_resources
+
+  # ============================================
+  # MinIO (S3-Compatible Storage)
+  # ============================================
+  minio:
+    image: minio/minio:latest
+    container_name: msvc-minio
+    ports:
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    env_file:
+      - .env.staging
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # ============================================
+  # MinIO Initialization
+  # ============================================
+  minio-init:
+    image: minio/mc:latest
+    container_name: msvc-minio-init
+    env_file:
+      - .env.staging
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - msvc
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing local/msvc-images;
+      mc mb --ignore-existing local/loki-chunks;
+      mc mb --ignore-existing local/tempo-traces;
+      echo 'MinIO buckets initialized successfully (msvc-images, loki-chunks, tempo-traces)';
+      "
+
+  # ============================================
+  # Tempo (Distributed Tracing Backend)
+  # ============================================
+  tempo:
+    image: grafana/tempo:latest
+    container_name: msvc-tempo
+    ports:
+      - "${TEMPO_UI_PORT:-3200}:3200"
+      - "${TEMPO_OTLP_GRPC_PORT:-4317}:4317"
+      - "${TEMPO_OTLP_HTTP_PORT:-4318}:4318"
+    command: -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./o11y_configs/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    tmpfs:
+      - /tmp/tempo:mode=1777,size=2G
+    environment:
+      - LOG_LEVEL=info
+    depends_on:
+      - minio-init
+    networks:
+      - msvc
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # ============================================
+  # Jaeger (Tracing UI)
+  # ============================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: msvc-jaeger
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${JAEGER_OTLP_GRPC_PORT:-4327}:4317"
+      - "${JAEGER_OTLP_HTTP_PORT:-4328}:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+      - MEMORY_MAX_TRACES=50000
+      - LOG_LEVEL=info
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:16686/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # ============================================
+  # Prometheus (Metrics Collection)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: msvc-prometheus
+    user: root
+    env_file:
+      - .env.staging
+    ports:
+      - "${PROMETHEUS_UI_PORT}:9090"
+    volumes:
+      - ./o11y_configs/prometheus/prometheus-lb.yml.template:/etc/prometheus/prometheus-env.yml:ro
+      - ./o11y_configs/prometheus/replace_env.sh:/tmp/replace_env.sh:ro
+      - prometheus-data:/prometheus
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        sh /tmp/replace_env.sh /etc/prometheus/prometheus-env.yml /etc/prometheus/prometheus.yml
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d --web.console.libraries=/usr/share/prometheus/console_libraries --web.console.templates=/usr/share/prometheus/consoles
+    depends_on:
+      - user_svc
+      - client_svc
+      - image_svc_1
+      - image_svc_2
+      - email_svc
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # ============================================
+  # Loki (Log Aggregation)
+  # ============================================
+  loki:
+    image: grafana/loki:latest
+    container_name: msvc-loki
+    ports:
+      - "${LOKI_PORT}:3100"
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./o11y_configs/loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    depends_on:
+      - minio-init
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # ============================================
+  # Promtail (Log Shipper)
+  # ============================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: msvc-promtail
+    ports:
+      - "9080:9080"
+    volumes:
+      - ./o11y_configs/promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - msvc
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # Grafana (Observability Dashboard)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: msvc-grafana
+    ports:
+      - "${GRAFANA_UI_PORT}:3000"
+    env_file:
+      - .env.staging
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./o11y_configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./o11y_configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - loki
+      - tempo
+      - prometheus
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # ============================================
+  # Swagger UI (API Documentation)
+  # Optional: Comment out in production if not needed
+  # ============================================
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    container_name: msvc-swagger-ui
+    ports:
+      - "${SWAGGER_UI_PORT}:8080"
+    env_file:
+      - .env.staging
+    environment:
+      URLS: >
+        [
+          { url: "specs/client_svc.yaml", name: "Client Service (${CLIENT_SVC_PORT})"},
+          { url: "specs/user_svc.yaml", name: "User Service (${USER_SVC_PORT})" },
+          { url: "specs/image_svc.yaml", name: "Image Service (${IMAGE_SVC_PORT})" },
+          { url: "specs/email_svc.yaml", name: "Email Service (${EMAIL_SVC_PORT})" }
+        ]
+      URLS_PRIMARY_NAME: "Client Service (${CLIENT_SVC_PORT})"
+    volumes:
+      - ./openapi:/usr/share/nginx/html/specs:ro
+    networks:
+      - msvc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+# ============================================
+# Persistent Volumes
+# ============================================
+volumes:
+  minio-data:
+    driver: local
+  loki-data:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  nats_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+# ============================================
+# Network Configuration
+# ============================================
+networks:
+  msvc:
+    driver: bridge

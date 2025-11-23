@@ -8,9 +8,9 @@ defmodule UserService.MinIOCleaner do
   """
 
   # Run every 15 minutes
-  @cleanup_interval :timer.minutes(15)
-  # Delete files older than 1 hour
-  @max_age_seconds 3600
+  @cleanup_interval :timer.minutes(5)
+  # Delete files older than 10 minutes
+  @max_age_seconds 600
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)

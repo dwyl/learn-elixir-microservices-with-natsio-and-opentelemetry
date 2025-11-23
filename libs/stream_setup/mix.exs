@@ -17,7 +17,7 @@ defmodule StreamSetup.MixProject do
 
   def deps do
     [
-      {:gnat, "~> 1.11.1"},
+      {:gnat, "~> 1.12"},
       {:jason, "~> 1.4"}
     ]
   end

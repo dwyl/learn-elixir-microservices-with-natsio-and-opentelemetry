@@ -12,12 +12,12 @@ defmodule Broadway.Images.BinaryToPdf do
       producer: [
         module: {
           OffBroadway.Jetstream.Producer,
+          # Fetch more messages per batch for better throughput
+          # Check for messages more frequently (10ms vs 100ms) for lower latency
           connection_name: :gnat,
           stream_name: "IMAGES",
           consumer_name: "binary_to_pdf",
-          # Fetch more messages per batch for better throughput
           max_number_of_messages: 50,
-          # Check for messages more frequently (10ms vs 100ms) for lower latency
           receive_interval: 10
         },
         concurrency: 2
@@ -58,11 +58,11 @@ defmodule Broadway.Images.BinaryToPdf do
 
   defp perform_conversion(binary_body) do
     %Mcsv.V3.ImageConversionRequest{} = req = Mcsv.V3.ImageConversionRequest.decode(binary_body)
-    image_bucket = S3Things.bucket_image()
+    image_bucket = ReqS3Storage.bucket_image()
 
     case convert_to_pdf(req, image_bucket) do
       {:ok, bucket, key, output_size} ->
-        pdf_url = ReqS3Storage.generate_presigned_url(bucket, key, S3Things.s3_opts())
+        pdf_url = ReqS3Storage.generate_presigned_url(bucket, key, ReqS3Storage.s3_opts())
 
         # Extract binary from oneof source field
         {:image_data, binary} = req.source
@@ -130,7 +130,7 @@ defmodule Broadway.Images.BinaryToPdf do
   end
 
   defp upload_binary_to_s3(pdf_binary, bucket, job_id) do
-    case ReqS3Storage.store(pdf_binary, bucket, job_id, "application/pdf", S3Things.s3_opts()) do
+    case ReqS3Storage.store(pdf_binary, bucket, job_id, "application/pdf", ReqS3Storage.s3_opts()) do
       {:ok, %{bucket: bucket, key: key, size: size, presigned_url: _presigned_url}} ->
         Logger.info("[Broadway] Uploaded PDF to #{bucket}/#{key} (#{size} bytes)")
         {:ok, {key, size}}

@@ -6,6 +6,8 @@ A **Phoenix/Elixir microservices** proof-of-concept addressing three core challe
 2. **Debugging Distributed Systems**: Full observability with OpenTelemetry (traces, logs, metrics)
 3. **Failure Handling**: Message durability, automatic retries, and load balancing via JetStream
 
+**Why an async message broker like NATS?** Instead of services calling each other directly via HTTP (creating "endpoint hell" where every service needs to know every other service's URL), NATS decouples services through async message passing. Services publish events to topics and subscribe to topics they care about—no hardcoded URLs, no cascading failures, and natural load balancing across multiple instances.
+
 We demonstrate both CPU-intensive (PNG-to-PDF conversion with S3 streaming) and I/O-bound (email sending) workloads.
 
 **What we DON'T cover**: Data consistency (sagas, event sourcing), deployment orchestration beyond `docker compose`, or service discovery (service mesh).
@@ -321,10 +323,10 @@ On the other side, [Tempo](https://grafana.com/docs/tempo/latest/configuration/#
 
    ```elixir
    # Send an email to "user2@com":
-   iex> Email.create(2, :wlcome)
+   iex> Email.create(2, :welcome)
 
-   # Convert an image to PDF
-   iex> Image.convert_png(File.read!("test.png), "user@example.com")
+   # Convert a small image to PDF
+   iex> Image.convert_png(File.read!("priv/test.png"), "user@example.com")
    ```
 
 5. **View traces in Jaeger**: click on JAEGER in the Livebook

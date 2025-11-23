@@ -69,7 +69,7 @@ defmodule ImageService.MixProject do
       {:phoenix, "~> 1.8.1"},
       {:plug, "~> 1.16"},
       {:req, "~> 0.5.15"},
-      {:gnat, "~> 1.11.1"},
+      {:gnat, "~> 1.12"},
       {:jetstream, "~> 0.0.0"},
       {:stream_setup, path: "../../libs/stream_setup"},
       {:custom_metrics, path: "../../libs/custom_metrics"},

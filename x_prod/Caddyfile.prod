@@ -1,0 +1,86 @@
+# Production Caddyfile
+# Replace "example.com" with your actual domain name
+# Caddy will automatically obtain and renew Let's Encrypt SSL certificates
+
+# ============================================
+# Main Application (Livebook)
+# ============================================
+# Replace with your domain: myapp.example.com
+:8080 {
+    reverse_proxy livebook:8090 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        transport http {
+            versions 1.1
+        }
+    }
+    header {
+        -X-Frame-Options
+        Content-Security-Policy "frame-ancestors *"
+    }
+}
+
+# For production with HTTPS (uncomment and replace example.com):
+# myapp.example.com {
+#     reverse_proxy livebook:8090 {
+#         header_up Host {host}
+#         header_up X-Real-IP {remote_host}
+#         header_up X-Forwarded-For {remote_host}
+#         header_up X-Forwarded-Proto {scheme}
+#
+#         transport http {
+#             versions 1.1
+#         }
+#     }
+#     header {
+#         -X-Frame-Options
+#         Content-Security-Policy "frame-ancestors *"
+#     }
+# }
+
+# ============================================
+# Observability Services (Subdomains)
+# ============================================
+
+# Jaeger UI
+# jaeger.example.com {
+#     reverse_proxy jaeger:16686
+# }
+
+# Grafana Dashboard
+# grafana.example.com {
+#     reverse_proxy grafana:3000
+# }
+
+# Prometheus
+# prometheus.example.com {
+#     reverse_proxy prometheus:9090
+# }
+
+# MinIO Console
+# minio.example.com {
+#     reverse_proxy minio:9001
+# }
+
+# ============================================
+# Development Access (localhost subdomains)
+# Keep these for local testing
+# ============================================
+http://jaeger.localhost:8080 {
+    reverse_proxy jaeger:16686
+}
+
+http://grafana.localhost:8080 {
+    reverse_proxy grafana:3000
+}
+
+http://prometheus.localhost:8080 {
+    reverse_proxy prometheus:9090
+}
+
+http://minio.localhost:8080 {
+    reverse_proxy minio:9001
+}
