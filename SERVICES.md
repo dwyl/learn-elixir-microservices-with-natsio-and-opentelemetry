@@ -7,7 +7,6 @@ All services accessible at `http://localhost:<port>`:
 | Service        | Port | Health Check | Description        |
 | -------------- | ---- | ------------ | ------------------ |
 | **user_svc**   | 8081 | `/health`    | User management    |
-| **job_svc**    | 8082 | `/health`    | Job processing     |
 | **email_svc**  | 8083 | `/health`    | Email service      |
 | **image_svc**  | 8084 | `/health`    | Image processing   |
 | **client_svc** | 8085 | `/health`    | Client API gateway |
@@ -17,7 +16,6 @@ All services accessible at `http://localhost:<port>`:
 ```bash
 # Health checks
 curl http://localhost:8081/health  # user_svc
-curl http://localhost:8082/health  # job_svc
 curl http://localhost:8083/health  # email_svc
 curl http://localhost:8084/health  # image_svc
 curl http://localhost:8085/health  # client_svc
@@ -33,7 +31,6 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 services = [
   :"client_svc@client_svc.msvc",
   :"user_svc@user_svc.msvc",
-  :"job_svc@job_svc.msvc",
   :"image_svc@image_svc.msvc",
   :"email_svc@email_svc.msvc"
 ]
@@ -93,32 +90,38 @@ See [LIVEBOOK_KINO_GUIDE.md](LIVEBOOK_KINO_GUIDE.md) for Kino usage examples.
 ## Docker Compose Commands
 
 ### Start all services
+
 ```bash
 docker-compose -f docker-compose-all.yml up
 ```
 
 ### Start specific services
+
 ```bash
 docker-compose -f docker-compose-all.yml up user_svc client_svc
 ```
 
 ### Stop all services
+
 ```bash
 docker-compose -f docker-compose-all.yml down
 ```
 
 ### View logs
+
 ```bash
 docker-compose -f docker-compose-all.yml logs -f user_svc
 ```
 
 ### Rebuild after code changes
+
 ```bash
 docker-compose -f docker-compose-all.yml build user_svc
 docker-compose -f docker-compose-all.yml up user_svc
 ```
 
 ### Check cluster status
+
 ```bash
 docker logs msvc-user-svc | grep Cluster
 docker logs msvc-client-svc | grep Cluster
@@ -129,23 +132,25 @@ docker logs msvc-client-svc | grep Cluster
 ## Service-to-Service Communication
 
 ### From Host (localhost)
+
 ```bash
 # Services use their container ports
 curl http://localhost:8081/api/users
 ```
 
 ### Inside Docker Network
+
 ```bash
 # Services use service names as hostnames
 docker exec msvc-client-svc curl http://user_svc:8081/health
 ```
 
 ### BEAM Cluster Node Names
+
 ```elixir
 # Each service has a fully qualified node name
 :"client_svc@client_svc.msvc"
 :"user_svc@user_svc.msvc"
-:"job_svc@job_svc.msvc"
 :"image_svc@image_svc.msvc"
 :"email_svc@email_svc.msvc"
 ```
@@ -155,6 +160,7 @@ docker exec msvc-client-svc curl http://user_svc:8081/health
 ## Environment Configuration
 
 All configuration in [.env.staging](.env.staging):
+
 - Service ports
 - Database paths
 - MinIO credentials
@@ -168,6 +174,7 @@ All configuration in [.env.staging](.env.staging):
 ## Useful Dashboards
 
 ### Monitor Everything
+
 ```bash
 # Open all dashboards at once
 open http://localhost:3000    # Grafana
@@ -177,6 +184,7 @@ open http://localhost:8087    # API Docs
 ```
 
 ### Check Service Health
+
 ```bash
 # All at once
 for port in 8081 8082 8083 8084 8085; do
@@ -190,6 +198,7 @@ done
 ## Troubleshooting
 
 ### Service won't start
+
 ```bash
 # Check logs
 docker logs msvc-user-svc
@@ -202,6 +211,7 @@ docker-compose -f docker-compose-all.yml build user_svc
 ```
 
 ### Can't access from host
+
 ```bash
 # Verify port mapping
 docker-compose -f docker-compose-all.yml ps
@@ -211,6 +221,7 @@ sudo pfctl -s rules | grep 8081
 ```
 
 ### Cluster not forming
+
 ```bash
 # Check node names
 docker exec msvc-user-svc bin/user_svc rpc 'Node.self()'
@@ -227,22 +238,26 @@ docker network inspect msvc_default
 ## Development Workflow
 
 ### 1. Make changes to code
+
 ```bash
 vim apps/user_svc/lib/user_svc/endpoint.ex
 ```
 
 ### 2. Rebuild and restart
+
 ```bash
 docker-compose -f docker-compose-all.yml build user_svc
 docker-compose -f docker-compose-all.yml up -d user_svc
 ```
 
 ### 3. Watch logs
+
 ```bash
 docker-compose -f docker-compose-all.yml logs -f user_svc
 ```
 
 ### 4. Test
+
 ```bash
 curl http://localhost:8081/health
 # Or use Livebook for interactive testing
@@ -264,11 +279,3 @@ Before deploying to production:
 - [ ] Configure production logging format (JSON)
 - [ ] Set up proper backup for databases and object storage
 
----
-
-## More Info
-
-- [CLUSTERING.md](CLUSTERING.md) - BEAM cluster setup
-- [DOCKER_CLUSTERING_LESSONS.md](DOCKER_CLUSTERING_LESSONS.md) - Key learnings
-- [LIBCLUSTER_GUIDE.md](LIBCLUSTER_GUIDE.md) - Using libcluster
-- [DNS_CLUSTER_GUIDE.md](DNS_CLUSTER_GUIDE.md) - Why DNSCluster doesn't work
