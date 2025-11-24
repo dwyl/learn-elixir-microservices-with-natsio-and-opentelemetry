@@ -2,7 +2,7 @@ x-common-depends: &common_depends
   depends_on:
     - minio
     - jaeger
-    - tempo
+    # - tempo
     - loki
     - promtail
 
@@ -297,28 +297,28 @@ services:
     entrypoint: >
       /bin/sh -c " mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; mc mb --ignore-existing local/msvc-images; mc mb --ignore-existing local/loki-chunks; mc mb --ignore-existing local/tempo-traces; echo 'MinIO buckets initialized successfully (msvc-images, loki-chunks, tempo-traces)'; "
 
-  tempo:
-    image: grafana/tempo:latest
-    container_name: msvc-tempo
-    ports:
-      - ${TEMPO_UI_PORT:-3200}:3200 # Tempo Query UI (optional)
-      - ${TEMPO_OTLP_GRPC_PORT:-4317}:4317 # OTLP gRPC receiver (RECOMMENDED for production)
-      - ${TEMPO_OTLP_HTTP_PORT:-4318}:4318 # OTLP HTTP receiver (fallback)
-    command: -config.file=/etc/tempo/tempo.yml
-    volumes:
-      - ./o11y_configs/tempo/tempo.yml:/etc/tempo/tempo.yml
-    tmpfs:
-      - /tmp/tempo:mode=1777,size=1G # Temporary storage for WAL and cache (writable by all users)
-    environment:
-      - LOG_LEVEL=info
-    depends_on:
-      - minio-init # Wait for MinIO buckets
-    networks:
-      - msvc
-    # Note: Tempo image doesn't include wget/curl, so we skip healthcheck
-    # Tempo logs show "Tempo started" when ready
+  # tempo:
+  #   image: grafana/tempo:latest
+  #   container_name: msvc-tempo
+  #   ports:
+  #     - ${TEMPO_UI_PORT:-3200}:3200 # Tempo Query UI (optional)
+  #     - ${TEMPO_OTLP_GRPC_PORT:-4317}:4317 # OTLP gRPC receiver (RECOMMENDED for production)
+  #     - ${TEMPO_OTLP_HTTP_PORT:-4318}:4318 # OTLP HTTP receiver (fallback)
+  #   command: -config.file=/etc/tempo/tempo.yml
+  #   volumes:
+  #     - ./o11y_configs/tempo/tempo.yml:/etc/tempo/tempo.yml
+  #   tmpfs:
+  #     - /tmp/tempo:mode=1777,size=1G # Temporary storage for WAL and cache (writable by all users)
+  #   environment:
+  #     - LOG_LEVEL=info
+  #   depends_on:
+  #     - minio-init # Wait for MinIO buckets
+  #   networks:
+  #     - msvc
+  #   # Note: Tempo image doesn't include wget/curl, so we skip healthcheck
+  #   # Tempo logs show "Tempo started" when ready
 
-    # Jaeger - Distributed tracing UI (better UX than Tempo, shares OTLP traces)
+  #   # Jaeger - Distributed tracing UI (better UX than Tempo, shares OTLP traces)
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: msvc-jaeger
@@ -421,7 +421,7 @@ services:
       - ./o11y_configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - loki
-      - tempo
+      # - tempo
       - prometheus
     networks:
       - msvc
@@ -430,35 +430,34 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Swagger UI - Interactive API Documentation (for testing)
-  swagger-ui:
-    image: swaggerapi/swagger-ui:latest
-    container_name: msvc-swagger-ui
-    ports:
-      - ${SWAGGER_UI_PORT}:8080
-    env_file:
-      - .env.staging
-    environment:
-      # Service-specific configuration
-      URLS: >
-        [
-          { url: "specs/client_svc.yaml", name: "Client Service (${CLIENT_SVC_PORT})"},
-          { url: "specs/user_svc.yaml", name: "User Service (${USER_SVC_PORT})" },
-          { url: "specs/image_svc.yaml", name: "Image Service (${IMAGE_SVC_PORT})" },
-          { url: "specs/email_svc.yaml", name: "Email Service (${EMAIL_SVC_PORT})" }
-        ]
-      URLS_PRIMARY_NAME: "Client Service (${CLIENT_SVC_PORT})"
-    volumes:
-      - ./openapi:/usr/share/nginx/html/specs:ro
-    networks:
-      - msvc
-    healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-  # OpenSearch removed - Tempo uses MinIO for storage instead
+  # # Swagger UI - Interactive API Documentation (for testing)
+  # swagger-ui:
+  #   image: swaggerapi/swagger-ui:latest
+  #   container_name: msvc-swagger-ui
+  #   ports:
+  #     - ${SWAGGER_UI_PORT}:8080
+  #   env_file:
+  #     - .env.staging
+  #   environment:
+  #     # Service-specific configuration
+  #     URLS: >
+  #       [
+  #         { url: "specs/client_svc.yaml", name: "Client Service (${CLIENT_SVC_PORT})"},
+  #         { url: "specs/user_svc.yaml", name: "User Service (${USER_SVC_PORT})" },
+  #         { url: "specs/image_svc.yaml", name: "Image Service (${IMAGE_SVC_PORT})" },
+  #         { url: "specs/email_svc.yaml", name: "Email Service (${EMAIL_SVC_PORT})" }
+  #       ]
+  #     URLS_PRIMARY_NAME: "Client Service (${CLIENT_SVC_PORT})"
+  #   volumes:
+  #     - ./openapi:/usr/share/nginx/html/specs:ro
+  #   networks:
+  #     - msvc
+  #   healthcheck:
+  #     test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080" ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  # # OpenSearch removed - Tempo uses MinIO for storage instead
 
 volumes:
   minio-data:

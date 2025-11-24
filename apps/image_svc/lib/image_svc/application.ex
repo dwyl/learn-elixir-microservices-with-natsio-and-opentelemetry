@@ -64,8 +64,14 @@ defmodule ImageService.Application do
         end
 
       pid when is_pid(pid) ->
-        :ok = JetstreamSetup.setup_from_config(:image_svc, :gnat)
-        Logger.info("[NATS] Jetstream is ready")
+        case JetstreamSetup.setup_from_config(:image_svc, :gnat) do
+          :ok ->
+            Logger.info("[NATS] Jetstream stream 'IMAGES' and consumers created")
+
+          {:error, reason} ->
+            Logger.error("[NATS] Failed to set up Jetstream: #{inspect(reason)}")
+            raise "Failed to register Jetstream"
+        end
     end
   end
 

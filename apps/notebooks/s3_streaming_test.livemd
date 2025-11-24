@@ -15,6 +15,7 @@ Node.set_cookie(:msvc_dev_cookie_change_in_production)
 {
   Node.connect(:"user_svc@user_svc.msvc"),
   Node.connect(:"client_svc@client_svc.msvc"),
+  Node.connect(:"email_svc@email_svc.msvc"),
   Node.connect(:"image_svc_1@image_svc_1.msvc"),
   Node.connect(:"image_svc_2@image_svc_2.msvc")
 }
@@ -98,6 +99,10 @@ architecture-beta
 ## Import images
 
 ```elixir
+:erpc.call(:"client_svc@client_svc.msvc", Email, :create, [1, :welcome])
+```
+
+```elixir
 file = Kino.Input.file("Click below to import an image")
 ```
 
@@ -122,7 +127,7 @@ The code will not run if size > 1MB
 if (byte_size(bin)> 1_000_000), do: raise "too big"
 
 Stream.interval(50)
-|> Stream.take(5000)
+|> Stream.take(5)
 |> Task.async_stream(
   fn i ->
     :erpc.call(:"client_svc@client_svc.msvc", Image, :convert_bin, [bin, "user#{i}@com"])
@@ -203,14 +208,14 @@ Send request every 200ms to `Image.convert_from_s3()`
 
 ```elixir
 Stream.interval(100)
-|>  Stream.take(500)
+|>  Stream.take(10)
 |>Task.async_stream(
   fn i ->  
     :erpc.call(
       :"client_svc@client_svc.msvc", 
       Image, 
       :convert_from_s3, 
-      [upload_result.key, "m#{i}@com"]
+      [upload_result.key, "m#{i+1}@com"]
     )
   end,
   ordered: false,

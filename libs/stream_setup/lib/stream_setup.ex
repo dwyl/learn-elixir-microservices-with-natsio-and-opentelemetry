@@ -32,37 +32,6 @@ defmodule JetstreamSetup do
   require Logger
 
   @doc """
-  Sets up streams from a list of stream configurations.
-
-  Each stream config should have:
-  - `name` (required): Stream name
-  - `subjects` (required): List of subject patterns
-  - `consumers` (optional): List of consumer configs
-
-  Consumer config should have:
-  - `name` (required): Consumer name
-  - `filter_subject` (optional): Only receive messages matching this subject
-  - `ack_policy` (optional): "explicit", "all", or "none" (default: "explicit")
-  - `deliver_policy` (optional): "all", "last", "new" (default: "all")
-  """
-  def setup_streams(connection_name \\ :gnat, streams) when is_list(streams) do
-    results =
-      for stream <- streams do
-        with :ok <- create_stream(connection_name, stream),
-             :ok <- create_consumers(connection_name, stream) do
-          :ok
-        else
-          {:error, reason} -> {:error, {stream[:name], reason}}
-        end
-      end
-
-    case Enum.filter(results, &match?({:error, _}, &1)) do
-      [] -> :ok
-      errors -> {:error, errors}
-    end
-  end
-
-  @doc """
   Sets up JetStream from application configuration.
 
   Reads the stream configuration from the application environment:
@@ -94,6 +63,40 @@ defmodule JetstreamSetup do
     end
   end
 
+  @doc """
+  Sets up streams from a list of stream configurations.
+
+  Each stream config should have:
+  - `name` (required): Stream name
+  - `subjects` (required): List of subject patterns
+  - `consumers` (optional): List of consumer configs
+
+  Consumer config should have:
+  - `name` (required): Consumer name
+  - `filter_subject` (optional): Only receive messages matching this subject
+  - `ack_policy` (optional): "explicit", "all", or "none" (default: "explicit")
+  - `deliver_policy` (optional): "all", "last", "new" (default: "all")
+  """
+  def setup_streams(connection_name \\ :gnat, streams) when is_list(streams) do
+    results =
+      for stream <- streams do
+        with :ok <-
+               create_stream(connection_name, stream),
+             :ok <-
+               create_consumers(connection_name, stream) do
+          :ok
+        else
+          {:error, reason} ->
+            {:error, {stream[:name], reason}}
+        end
+      end
+
+    case Enum.filter(results, &match?({:error, _}, &1)) do
+      [] -> :ok
+      errors -> {:error, errors}
+    end
+  end
+
   # Private helpers
 
   defp create_consumers(_connection_name, %{consumers: []}), do: :ok
@@ -112,35 +115,24 @@ defmodule JetstreamSetup do
   end
 
   defp create_stream(connection_name, %{name: name, subjects: subjects}) do
-    # Use raw NATS API to avoid struct encoding issues with :domain field
-    config = %{
-      "name" => name,
-      "subjects" => subjects
-    }
+    case Gnat.Jetstream.API.Stream.create(
+           connection_name,
+           %Gnat.Jetstream.API.Stream{
+             name: name,
+             subjects: subjects
+           }
+         ) do
+      {:ok, _response} ->
+        Logger.info("[JetStream] Stream '#{name}' created successfully")
+        :ok
 
-    topic = "$JS.API.STREAM.CREATE.#{name}"
-    message = Jason.encode!(config)
+      {:error, %{"code" => 400, "description" => "stream name already in use"}} ->
+        Logger.debug("[JetStream] Stream '#{name}' already exists")
+        :ok
 
-    case Gnat.request(connection_name, topic, message, receive_timeout: 5_000) do
-      {:ok, %{body: body}} ->
-        response = Jason.decode!(body)
-
-        case response do
-          %{"error" => error} ->
-            handle_stream_error(name, error)
-
-          %{"type" => "io.nats.jetstream.api.v1.stream_create_response"} ->
-            Logger.info("[JetStream] Stream '#{name}' created successfully")
-            :ok
-
-          _ ->
-            Logger.info("[JetStream] Stream maybe '#{name}' created successfully")
-            :ok
-        end
-
-      {:error, :timeout} ->
-        Logger.error("[JetStream] Timeout creating stream '#{name}'")
-        {:error, :timeout}
+      {:error, %{"err_code" => 10058}} ->
+        Logger.debug("[JetStream] Stream '#{name}' already exists")
+        :ok
 
       {:error, reason} ->
         Logger.error("[JetStream] Failed to create stream '#{name}': #{inspect(reason)}")
@@ -148,82 +140,42 @@ defmodule JetstreamSetup do
     end
   end
 
-  defp handle_stream_error(name, %{"code" => 400, "description" => "stream name already in use"}) do
-    Logger.debug("[JetStream] Stream '#{name}' already exists")
-    :ok
-  end
-
-  defp handle_stream_error(name, %{"err_code" => 10058}) do
-    Logger.debug("[JetStream] Stream '#{name}' already exists")
-    :ok
-  end
-
-  defp handle_stream_error(name, error) do
-    Logger.error("[JetStream] Failed to create stream '#{name}': #{inspect(error)}")
-    {:error, error}
-  end
-
   defp create_consumer(connection_name, stream_name, consumer_config) do
     consumer_name = consumer_config[:name] || consumer_config["name"]
-    ack_policy = consumer_config[:ack_policy] || consumer_config["ack_policy"] || "explicit"
+    ack_policy = parse_ack_policy(consumer_config[:ack_policy] || consumer_config["ack_policy"])
 
     deliver_policy =
-      consumer_config[:deliver_policy] || consumer_config["deliver_policy"] || "all"
+      parse_deliver_policy(consumer_config[:deliver_policy] || consumer_config["deliver_policy"])
 
     filter_subject = consumer_config[:filter_subject] || consumer_config["filter_subject"]
 
-    # Use raw NATS API for consumer creation
-    # For DURABLE endpoint: consumer name goes in BOTH the URL AND the config
-    config = %{
-      "durable_name" => consumer_name,
-      "ack_policy" => ack_policy,
-      "deliver_policy" => deliver_policy
+    consumer_struct = %Gnat.Jetstream.API.Consumer{
+      durable_name: consumer_name,
+      stream_name: stream_name,
+      ack_policy: ack_policy,
+      deliver_policy: deliver_policy
     }
 
     # Add filter_subject if provided
-    config =
+    consumer_struct =
       if filter_subject do
-        Map.put(config, "filter_subject", filter_subject)
+        %{consumer_struct | filter_subject: filter_subject}
       else
-        config
+        consumer_struct
       end
 
-    request_body = %{
-      "stream_name" => stream_name,
-      "config" => config
-    }
+    case Gnat.Jetstream.API.Consumer.create(connection_name, consumer_struct) do
+      {:ok, _response} ->
+        Logger.info("[JetStream] Consumer '#{stream_name}/#{consumer_name}' created successfully")
+        :ok
 
-    topic = "$JS.API.CONSUMER.DURABLE.CREATE.#{stream_name}.#{consumer_name}"
-    message = Jason.encode!(request_body)
+      {:error, %{"code" => 400, "description" => "consumer name already in use"}} ->
+        Logger.debug("[JetStream] Consumer '#{stream_name}/#{consumer_name}' already exists")
+        :ok
 
-    case Gnat.request(connection_name, topic, message, receive_timeout: 5_000) do
-      {:ok, %{body: body}} ->
-        response = Jason.decode!(body)
-
-        case response do
-          %{"error" => error} ->
-            handle_consumer_error(stream_name, consumer_name, error)
-
-          %{"type" => "io.nats.jetstream.api.v1.consumer_create_response", "did_create" => true} ->
-            Logger.info(
-              "[JetStream] Consumer '#{stream_name}/#{consumer_name}' created successfully"
-            )
-
-            :ok
-
-          %{"type" => "io.nats.jetstream.api.v1.consumer_create_response"} ->
-            Logger.debug("[JetStream] Consumer '#{stream_name}/#{consumer_name}' already exists")
-            :ok
-
-          _ ->
-            Logger.info("[JetStream] Consumer '#{stream_name}/#{consumer_name}' ready")
-
-            :ok
-        end
-
-      {:error, :timeout} ->
-        Logger.error("[JetStream] Timeout creating consumer '#{stream_name}/#{consumer_name}'")
-        {:error, :timeout}
+      {:error, %{"err_code" => 10013}} ->
+        Logger.debug("[JetStream] Consumer '#{stream_name}/#{consumer_name}' already exists")
+        :ok
 
       {:error, reason} ->
         Logger.error(
@@ -234,24 +186,15 @@ defmodule JetstreamSetup do
     end
   end
 
-  defp handle_consumer_error(stream_name, consumer_name, %{
-         "code" => 400,
-         "description" => "consumer name already in use"
-       }) do
-    Logger.debug("[JetStream] Consumer '#{stream_name}/#{consumer_name}' already exists")
-    :ok
-  end
+  defp parse_ack_policy(nil), do: :explicit
+  defp parse_ack_policy("explicit"), do: :explicit
+  defp parse_ack_policy("all"), do: :all
+  defp parse_ack_policy("none"), do: :none
+  defp parse_ack_policy(atom) when is_atom(atom), do: atom
 
-  defp handle_consumer_error(stream_name, consumer_name, %{"err_code" => 10013}) do
-    Logger.debug("[JetStream] Consumer '#{stream_name}/#{consumer_name}' already exists")
-    :ok
-  end
-
-  defp handle_consumer_error(stream_name, consumer_name, error) do
-    Logger.error(
-      "[JetStream] Failed to create consumer '#{stream_name}/#{consumer_name}': #{inspect(error)}"
-    )
-
-    {:error, error}
-  end
+  defp parse_deliver_policy(nil), do: :all
+  defp parse_deliver_policy("all"), do: :all
+  defp parse_deliver_policy("last"), do: :last
+  defp parse_deliver_policy("new"), do: :new
+  defp parse_deliver_policy(atom) when is_atom(atom), do: atom
 end

@@ -125,7 +125,7 @@ defmodule UserService.Application do
             Logger.info("[MinIO] Bucket '#{bucket}' already exists")
             :ok
 
-          {:ok, %Req.Response{status: 403}} ->
+          {:ok, %Req.Response{status: 404}} ->
             Logger.info("[MinIO] Creating bucket '#{bucket}'")
 
             case Req.put(req, url: "s3://#{bucket}") do
