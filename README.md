@@ -172,6 +172,7 @@ This demo runs on **Docker** with **Livebook** for interactive exploration.
     - [OpenTelemetry](#opentelemetry)
     - [Observability](#observability)
     - [Protobuf](#protobuf)
+  - [COCOMO](#cocomo)
 
 ---
 
@@ -2109,3 +2110,29 @@ end, max_concurrency: 10, ordered: false)
 - [Sharing Protobuf schemas across services](https://andrealeopardi.com/posts/sharing-protobuf-schemas-across-services/)
 
 ---
+
+## COCOMO
+
+Curious about the effort required to build this?
+
+COCOMO (Constructive Cost Model) ⏯️ https://en.wikipedia.org/wiki/COCOMO is a standard software engineering metric. 
+
+We used the implementation: https://github.com/boyter/scc to generate the table below.
+
+| Language        | Files | Lines  | Blanks | Comments | Code   | Complexity |
+| --------------- | ----- | ------ | ------ | -------- | ------ | ---------- |
+| Elixir          | 109   | 7,796  | 1,186  | 784      | 5,826  | 257        |
+| Protocol Buffe… | 15    | 757    | 133    | 73       | 551    | 0          |
+| Elixir Template | 13    | 124    | 30     | 68       | 26     | 2          |
+| JSON            | 12    | 15,825 | 5      | 0        | 15,820 | 0          |
+| Markdown        | 12    | 4,308  | 1,104  | 0        | 3,204  | 0          |
+| YAML            | 9     | 1,828  | 128    | 172      | 1,528  | 0          |
+| Docker ignore   | 6     | 162    | 37     | 42       | 83     | 0          |
+| Dockerfile      | 4     | 416    | 90     | 102      | 224    | 16         |
+| Shell           | 3     | 374    | 61     | 39       | 274    | 16         |
+
+Total        |         183   |   31,590   |  2,774   |  1,280   |  27,536   |     291|
+
+Estimated Cost to Develop (organic) $877,993
+Estimated Schedule Effort (organic) 13.09 months
+Estimated People Required (organic) 5.96
