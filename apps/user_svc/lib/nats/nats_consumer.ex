@@ -7,6 +7,21 @@ defmodule UserService.NatsConsumer do
   require Logger
   require OpenTelemetry.Tracer, as: Tracer
 
+  # @doc """
+  # Generate a deterministic message ID for JetStream deduplication.
+  # Uses SHA256 hash of the request content to ensure idempotency.
+  # """
+  # def generate_msg_id(prefix, key_fields) do
+  #   # Create deterministic ID from key fields
+  #   hash =
+  #     key_fields
+  #     |> Enum.join("-")
+  #     |> then(&:crypto.hash(:sha256, &1))
+  #     |> Base.encode16(case: :lower)
+
+  #   "#{prefix}-#{String.slice(hash, 0, 16)}"
+  # end
+
   @doc """
   Handle incoming NATS messages.
   Called by Gnat.ConsumerSupervisor for each message.
@@ -23,15 +38,19 @@ defmodule UserService.NatsConsumer do
     Tracer.with_span "UserSvc.NatsConsumer.email.create" do
       Logger.info("[NatsConsumer] Received message on email.create")
 
+      # Generate deterministic message ID for JetStream deduplication
+      # msg_id = generate_msg_id("email", [req.id, req.email, to_string(req.type)])
+
       # Inject trace context into outgoing message
       trace_headers = OtelNats.inject()
+      headers_with_msg_id = [{"Nats-Msg-Id", req.job_id} | trace_headers]
 
       case req.type do
         :EMAIL_TYPE_WELCOME ->
-          :ok = Gnat.pub(:gnat, "email.welcome", body, headers: trace_headers)
+          :ok = Gnat.pub(:gnat, "email.welcome", body, headers: headers_with_msg_id)
 
         :EMAIL_TYPE_NOTIFICATION ->
-          :ok = Gnat.pub(:gnat, "email.notification", body, headers: trace_headers)
+          :ok = Gnat.pub(:gnat, "email.notification", body, headers: headers_with_msg_id)
 
         _ ->
           Logger.error("[NatsConsumer] Unknown email type: #{inspect(req.type)}")
@@ -75,9 +94,14 @@ defmodule UserService.NatsConsumer do
 
     Tracer.with_span "UserSvc.NatsConsumer.image.converted", span_opts do
       if response.success do
-        Logger.info("[NatsConsumer] ✅ Image conversion succeeded (job_id: #{response.job_id}, size: #{response.output_size}B)")
+        Logger.info(
+          "[NatsConsumer] ✅ Image conversion succeeded (job_id: #{response.job_id}, size: #{response.output_size}B)"
+        )
       else
-        Logger.error("[NatsConsumer] ❌ Image conversion failed (job_id: #{response.job_id}, error: #{response.message})")
+        Logger.error(
+          "[NatsConsumer] ❌ Image conversion failed (job_id: #{response.job_id}, error: #{response.message})"
+        )
+
         OpenTelemetry.Tracer.set_status(:error, "Image conversion failed: #{response.message}")
       end
 
@@ -170,8 +194,16 @@ defmodule UserService.NatsConsumer do
     # Request already has source: {:image_data, binary} - just encode as-is
     img = Mcsv.V3.ImageConversionRequest.encode(req)
 
-    :ok = Gnat.pub(:gnat, "image.convert.binary.to_pdf", img, headers: trace_headers)
-    Logger.info("[NatsConsumer] Forwarded binary image conversion request to image_svc (job_id: #{req.job_id})")
+    # Generate deterministic message ID for JetStream deduplication
+    # msg_id = generate_msg_id("img-bin", [req.job_id, req.id, req.user_email])
+    headers_with_msg_id = [{"Nats-Msg-Id", req.job_id} | trace_headers]
+
+    :ok = Gnat.pub(:gnat, "image.convert.binary.to_pdf", img, headers: headers_with_msg_id)
+
+    Logger.info(
+      "[NatsConsumer] Forwarded binary image conversion request to image_svc (job_id: #{req.job_id}"
+    )
+
     :ok
   end
 
@@ -179,8 +211,16 @@ defmodule UserService.NatsConsumer do
     # Request already has source: {:s3_ref, %{...}} - just encode as-is
     img = Mcsv.V3.ImageConversionRequest.encode(req)
 
-    :ok = Gnat.pub(:gnat, "image.convert.url.to_pdf", img, headers: trace_headers)
-    Logger.info("[NatsConsumer] Forwarded S3 image conversion request to image_svc (job_id: #{req.job_id})")
+    # Generate deterministic message ID for JetStream deduplication
+    # msg_id = generate_msg_id("img-url", [req.job_id, req.id, req.user_email])
+    headers_with_msg_id = [{"Nats-Msg-Id", req.job_id} | trace_headers]
+
+    :ok = Gnat.pub(:gnat, "image.convert.url.to_pdf", img, headers: headers_with_msg_id)
+
+    Logger.info(
+      "[NatsConsumer] Forwarded S3 image conversion request to image_svc (job_id: #{req.job_id}"
+    )
+
     :ok
   end
 
@@ -197,7 +237,10 @@ defmodule UserService.NatsConsumer do
         {:error, :s3_object_not_found}
 
       {:error, reason} ->
-        Logger.error("[NatsConsumer] S3 validation failed: #{bucket}/#{key} error: #{inspect(reason)}")
+        Logger.error(
+          "[NatsConsumer] S3 validation failed: #{bucket}/#{key} error: #{inspect(reason)}"
+        )
+
         {:error, :s3_validation_error}
     end
   end
@@ -212,7 +255,6 @@ defmodule UserService.NatsConsumer do
       case reason do
         :s3_object_not_found -> "Source image not found in S3"
         :s3_validation_error -> "Failed to validate S3 source"
-        other -> "Validation error: #{inspect(other)}"
       end
 
     response_binary =

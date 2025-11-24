@@ -116,6 +116,8 @@ bin
 
 #### Send small image conversion request every 50ms: `Image.convert_bin()`
 
+The code will not run if size > 1MB
+
 ```elixir
 if (byte_size(bin)> 1_000_000), do: raise "too big"
 
@@ -132,6 +134,8 @@ Stream.interval(50)
 ```
 
 #### Send concurrently 100 small image conversion requests to `Image.convert_bin()`
+
+The code will not run if the size is > 1MB
 
 ```elixir
 if (byte_size(bin)> 1_000_000), do: raise "too big"
@@ -198,7 +202,7 @@ key = upload_result.key
 Send request every 200ms to `Image.convert_from_s3()`
 
 ```elixir
-Stream.interval(200)
+Stream.interval(100)
 |>  Stream.take(500)
 |>Task.async_stream(
   fn i ->  
@@ -215,6 +219,23 @@ Stream.interval(200)
 |> Stream.run()
 
 
+```
+
+```elixir
+1..200
+|>Task.async_stream(
+  fn i ->  
+    :erpc.call(
+      :"client_svc@client_svc.msvc", 
+      Image, 
+      :convert_from_s3, 
+      [upload_result.key, "m#{i}@com"]
+    )
+  end,
+  ordered: false,
+  max_concurrency: 10
+)
+|> Stream.run()
 ```
 
 ## Monitor Conversion (Listen for Response)

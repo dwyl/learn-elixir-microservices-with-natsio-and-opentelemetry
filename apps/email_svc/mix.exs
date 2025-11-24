@@ -61,7 +61,7 @@ defmodule EmailSvc.MixProject do
       {:broadway, "~> 1.2"},
       # {:req, "~> 0.5.15"},
       {:bandit, "~> 1.8"},
-      {:gnat, "~> 1.11.1"},
+      {:gnat, "~> 1.12"},
       {:jetstream, "~> 0.0.0"},
       # email client
       {:swoosh, "~> 1.19.8"},

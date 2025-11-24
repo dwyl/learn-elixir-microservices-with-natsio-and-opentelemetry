@@ -30,7 +30,8 @@ defmodule Email do
           id: "#{i}",
           name: "PB User #{i}",
           email: "user#{i}@example.com",
-          type: enum_type
+          type: enum_type,
+          job_id: generate_job_id("email", ["user-#{i}"])
         }
         |> Mcsv.V3.UserRequest.encode()
 
@@ -38,5 +39,20 @@ defmodule Email do
       trace_headers = OtelNats.inject()
       :ok = Gnat.pub(:gnat, "user.email.create", msg, headers: trace_headers)
     end
+  end
+
+  @doc """
+  Generate a deterministic message ID for JetStream deduplication.
+  Uses SHA256 hash of the request content to ensure idempotency.
+  """
+  def generate_job_id(prefix, key_fields) do
+    # Create deterministic ID from key fields
+    hash =
+      key_fields
+      |> Enum.join("-")
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "#{prefix}-#{String.slice(hash, 0, 16)}"
   end
 end

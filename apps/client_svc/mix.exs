@@ -69,7 +69,7 @@ defmodule ClientService.MixProject do
       {:protobuf, "~> 0.15.0"},
       {:otel_nats, path: "../../libs/otel_nats"},
       {:custom_metrics, path: "../../libs/custom_metrics"},
-      {:gnat, git: "https://github.com/nats-io/nats.ex.git"},
+      {:gnat, "~> 1.12"},
       # {:jetstream, "~> 0.0.9"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},

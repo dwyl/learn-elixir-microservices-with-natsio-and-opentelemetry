@@ -40,7 +40,7 @@ defmodule Image do
         {mimetype, width, height, _} ->
           Logger.info("Sending Image of type #{mimetype} to User service...: #{png_size}")
 
-          job_id = generate_job_id()
+          job_id = generate_job_id("image", [user_email])
 
           Tracer.set_attribute("image.width", width)
           Tracer.set_attribute("image.height", height)
@@ -90,7 +90,7 @@ defmodule Image do
     Tracer.with_span "image_client.convert_from_s3", %{kind: :client} do
       Tracer.set_attribute("user.email", user_email)
       Tracer.set_attribute("s3.key", key)
-      job_id = generate_job_id()
+      job_id = generate_job_id("image", [user_email, "s3-key-#{key}"])
       Tracer.set_attribute("image.job_id", job_id)
 
       Logger.info("Sending S3 key to User service: #{key}")
@@ -151,11 +151,26 @@ defmodule Image do
     |> Mcsv.V3.ImageConversionRequest.encode()
   end
 
-  defp generate_job_id do
-    timestamp = System.system_time(:microsecond)
-    random = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
-    "#{timestamp}_#{random}"
+  @doc """
+  Generate a deterministic message ID for JetStream deduplication.
+  Uses SHA256 hash of the request content to ensure idempotency.
+  """
+  def generate_job_id(prefix, key_fields) do
+    # Create deterministic ID from key fields
+    hash =
+      key_fields
+      |> Enum.join("-")
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "#{prefix}-#{String.slice(hash, 0, 16)}"
   end
+
+  # defp generate_job_id do
+  #   timestamp = System.system_time(:microsecond)
+  #   random = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
+  #   "#{timestamp}_#{random}"
+  # end
 
   defp image_bucket do
     Application.get_env(:client_svc, :s3)

@@ -17,6 +17,7 @@ defmodule Mcsv.V3.UserRequest do
   field :name, 2, type: :string
   field :email, 3, type: :string
   field :type, 4, type: Mcsv.V3.EmailType, enum: true
+  field :job_id, 5, type: :string, json_name: "jobId"
 end
 
 defmodule Mcsv.V3.UserResponse do

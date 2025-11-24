@@ -60,11 +60,11 @@ defmodule Broadway.Images.UrlToPdf do
   defp perform_conversion(binary_body) do
     %Mcsv.V3.ImageConversionRequest{} = req = Mcsv.V3.ImageConversionRequest.decode(binary_body)
 
-    image_bucket = ReqS3Storage.bucket_image()
+    image_bucket = bucket_image()
 
     case convert_to_pdf(req, image_bucket) do
       {:ok, bucket, key, output_size} ->
-        pdf_url = ReqS3Storage.generate_presigned_url(bucket, key, ReqS3Storage.s3_opts())
+        pdf_url = ReqS3Storage.generate_presigned_url(bucket, key, s3_opts())
 
         response_binary =
           build_success_response(
@@ -121,7 +121,7 @@ defmodule Broadway.Images.UrlToPdf do
         req.max_height
       )
 
-    s3_opts = ReqS3Storage.s3_opts()
+    s3_opts = s3_opts()
 
     # Stream from S3 -> ImageMagick, returns accumulated PDF binary
     with {:ok, pdf_binary} <-
@@ -221,5 +221,13 @@ defmodule Broadway.Images.UrlToPdf do
       user_email: user_email
     }
     |> Mcsv.V3.ImageConversionResponse.encode()
+  end
+
+  defp bucket_image do
+    Application.fetch_env!(:image_svc, :s3)[:image_bucket]
+  end
+
+  defp s3_opts do
+    Application.fetch_env!(:image_svc, :s3)
   end
 end
